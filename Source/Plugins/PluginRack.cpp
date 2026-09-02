@@ -303,8 +303,10 @@ juce::String PluginRack::loadPlugin (int slotIndex, const juce::PluginDescriptio
         inst->suspendProcessing (false);
 
         auto& slot = slots[(size_t) slotIndex];
-        const juce::ScopedLock sl (slot.lock);
-        publishInstance (slot, std::move (inst), desc, false);
+        {
+            const juce::ScopedLock sl (slot.lock);
+            publishInstance (slot, std::move (inst), desc, false);
+        }
         refreshVstAmpFlag();
         if (persist)
             saveSlotState();
@@ -317,9 +319,11 @@ void PluginRack::unloadPlugin (int slotIndex)
     if (slotIndex < 0 || slotIndex >= NumSlots)
         return;
     auto& slot = slots[(size_t) slotIndex];
-    const juce::ScopedLock sl (slot.lock);
-    retireInstance (slot);
-    slot.desc = {};
+    {
+        const juce::ScopedLock sl (slot.lock);
+        retireInstance (slot);
+        slot.desc = {};
+    }
     refreshVstAmpFlag();
     if (persistSlots)
         saveSlotState();
