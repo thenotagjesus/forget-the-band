@@ -1,4 +1,5 @@
 #include "Plugins/PluginHost.h"
+#include "SessionSettings.h"
 
 PluginHost::PluginHost()
 {
@@ -13,10 +14,7 @@ PluginHost::~PluginHost()
 
 juce::File PluginHost::settingsFile() const
 {
-    auto dir = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-                   .getChildFile ("Centrophy").getChildFile ("FtheBand");
-    dir.createDirectory();
-    return dir.getChildFile ("plugin-list.xml");
+    return SessionSettings::appDir().getChildFile ("plugin-list.xml");
 }
 
 juce::File PluginHost::deadMansPedalFile() const

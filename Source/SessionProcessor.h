@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include "DSP/AmpCab.h"
 #include "DSP/FollowerBand.h"
+#include "DSP/Arrangement.h"
 #include "DSP/GuitarFx.h"
 #include "Analysis/InputAnalyzer.h"
 #include "Recording/StemWriter.h"
@@ -47,6 +48,7 @@ public:
     AmpCab&        getAmp()      noexcept { return amp; }
     GuitarFx&      getFx()       noexcept { return fx; }
     FollowerBand&  getBand()     noexcept { return band; }
+    Arrangement&   getArrangement() noexcept { return arrangement; }
     InputAnalyzer& getAnalyzer() noexcept { return analyzer; }
     StemWriter&    getWriter()   noexcept { return writer; }
     PluginHost&    getPluginHost() noexcept { return host; }
@@ -119,6 +121,7 @@ private:
     AmpCab amp;
     GuitarFx fx;
     FollowerBand band;
+    Arrangement arrangement;
     InputAnalyzer analyzer;
     StemWriter writer;
     juce::MidiBuffer midiScratch;

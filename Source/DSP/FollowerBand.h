@@ -52,6 +52,12 @@ public:
     void setEnabled (bool e) noexcept { enabled.store (e ? 1 : 0, std::memory_order_relaxed); }
     bool isEnabled() const noexcept { return enabled.load (std::memory_order_relaxed) != 0; }
 
+    void setFollowedDegree (int deg) noexcept { followDeg.store (deg, std::memory_order_relaxed); }
+    void setThinMask (int mask) noexcept { thinMask.store (mask, std::memory_order_relaxed); }
+    void applyPhaseNudge (double deltaSamples) noexcept;
+    double getStepAccum() const noexcept { return stepAccum; }
+    double getSamplesPer16th() const noexcept { return samplesPer16th; }
+
     enum Member : int { MemberDrums = 0, MemberBass, MemberKeys, NumMembers };
 
     void setMemberEnabled (int member, bool e) noexcept
@@ -135,6 +141,8 @@ private:
     std::atomic<int> drumsOn { 1 };
     std::atomic<int> bassOn { 1 };
     std::atomic<int> keysOn { 1 };
+    std::atomic<int> followDeg { -1 };
+    std::atomic<int> thinMask { 0x7 };
     std::atomic<int> barIndexAtom { 0 };
     std::atomic<int> absBarAtom { 0 };
     std::atomic<int> stepAtom { 0 };

@@ -29,6 +29,7 @@ void SessionProcessor::prepare (double sr, int samplesPerBlock, int)
     amp.prepare (sampleRate, maxBlock);
     fx.prepare (sampleRate, maxBlock);
     band.prepare (sampleRate);
+    arrangement.prepare (sampleRate);
     analyzer.prepare (sampleRate);
     writer.prepare (sampleRate);
     guitarRack.prepare (sampleRate, maxBlock);
@@ -526,6 +527,26 @@ void SessionProcessor::processDuplex (const float* const* inChannels, int numIns
             && countingIn.load() == 0)
             be = juce::jmax (0.32f, be);
         bandEnergy.store (be, std::memory_order_relaxed);
+    }
+    {
+        float chroma[12] = {};
+        analyzer.copyChroma (chroma);
+        const bool onset = analyzer.consumeOnset();
+        arrangement.tick (chroma, onset,
+                          analyzer.getKeyPc(),
+                          (int) band.getStyle(),
+                          (int) band.getForm(),
+                          band.getAbsBarIndex(),
+                          band.getStepInBar(),
+                          bandEnergy.load (std::memory_order_relaxed),
+                          band.getStepAccum(),
+                          band.getSamplesPer16th());
+        if (arrangement.hasFollow())
+            band.setFollowedDegree (arrangement.getFollowDegree());
+        else
+            band.setFollowedDegree (-1);
+        band.setThinMask (arrangement.thinMask());
+        band.applyPhaseNudge (arrangement.consumePhaseNudge());
     }
     band.process (analyzer.getKeyPc(),
                   analyzer.getBpm(),

@@ -152,6 +152,8 @@ void FollowerBand::reset() noexcept
     hatDecayUse = 0.9982f;
     fillThisBar = false;
     pendingCrash = false;
+    followDeg.store (-1, std::memory_order_relaxed);
+    thinMask.store (0x7, std::memory_order_relaxed);
     step = 0;
     stepAccum = 0.0;
     fireImmediate = true; // one downbeat, not a catch-up flood
@@ -416,9 +418,10 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
         tomPhase = 0;
     };
 
-    const bool drumsLive = drumsOn.load (std::memory_order_relaxed) != 0;
-    const bool bassLive  = bassOn.load (std::memory_order_relaxed) != 0;
-    const bool keysLive  = keysOn.load (std::memory_order_relaxed) != 0;
+    const int thin = thinMask.load (std::memory_order_relaxed);
+    const bool drumsLive = drumsOn.load (std::memory_order_relaxed) != 0 && (thin & 0x1) != 0;
+    const bool bassLive  = bassOn.load (std::memory_order_relaxed) != 0 && (thin & 0x2) != 0;
+    const bool keysLive  = keysOn.load (std::memory_order_relaxed) != 0 && (thin & 0x4) != 0;
 
     if (drumsLive && step16 == 0 && pendingCrash)
     {
@@ -578,6 +581,14 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
     }
 }
 
+void FollowerBand::applyPhaseNudge (double deltaSamples) noexcept
+{
+    if (samplesPer16th <= 1.0)
+        return;
+    const double maxSlew = samplesPer16th * 0.10; // 10% of a 16th per block
+    stepAccum += juce::jlimit (-maxSlew, maxSlew, deltaSamples);
+}
+
 void FollowerBand::process (int keyPc,
                             float bpmIn,
                             float intensity,
@@ -606,7 +617,11 @@ void FollowerBand::process (int keyPc,
     if (fl == Feel::Behind) feelBias = 1.03;
 
     keyPc = ((keyPc + keyShift) % 12 + 12) % 12;
-    currentDeg = progressionDegree (barIndex);
+    {
+        const int canned = progressionDegree (barIndex);
+        const int f = followDeg.load (std::memory_order_relaxed);
+        currentDeg = (f >= 0) ? f : canned;
+    }
     nextDeg = progressionDegree (barIndex + 1);
     chordDegAtom.store (currentDeg, std::memory_order_relaxed);
     nextDegAtom.store (nextDeg, std::memory_order_relaxed);
@@ -616,9 +631,10 @@ void FollowerBand::process (int keyPc,
     stepAtom.store (step, std::memory_order_relaxed);
     changeAtom.store ((nextDeg != currentDeg && step >= 12) ? 1 : 0, std::memory_order_relaxed);
 
-    const float drumsGain = drumsOn.load (std::memory_order_relaxed) != 0 ? 1.0f : 0.0f;
-    const float bassGain  = bassOn.load (std::memory_order_relaxed) != 0 ? 1.0f : 0.0f;
-    const float keysGain  = keysOn.load (std::memory_order_relaxed) != 0 ? 1.0f : 0.0f;
+    const int thinG = thinMask.load (std::memory_order_relaxed);
+    const float drumsGain = (drumsOn.load (std::memory_order_relaxed) != 0 && (thinG & 0x1)) ? 1.0f : 0.0f;
+    const float bassGain  = (bassOn.load (std::memory_order_relaxed) != 0 && (thinG & 0x2)) ? 1.0f : 0.0f;
+    const float keysGain  = (keysOn.load (std::memory_order_relaxed) != 0 && (thinG & 0x4)) ? 1.0f : 0.0f;
 
     const float kickDecay  = (st == Style::Metal) ? 0.9992f : 0.9994f;
     const float snareDecay = 0.9991f;
@@ -667,7 +683,11 @@ void FollowerBand::process (int keyPc,
                 const int ph = juce::jmax (4, phraseBars.load (std::memory_order_relaxed));
                 if (getForm() == Form::Wander && (absBar % ph) == 0)
                     keyShift = (keyShift + 7) % 12;
-                currentDeg = progressionDegree (barIndex);
+                {
+                    const int canned = progressionDegree (barIndex);
+                    const int f = followDeg.load (std::memory_order_relaxed);
+                    currentDeg = (f >= 0) ? f : canned;
+                }
                 nextDeg = progressionDegree (barIndex + 1);
                 chordDegAtom.store (currentDeg);
                 nextDegAtom.store (nextDeg);
