@@ -447,6 +447,7 @@ void SessionProcessor::processDuplex (const float* const* inChannels, int numIns
 
     midiScratch.clear();
     analyzer.drainMidi (midiScratch, n);
+    daw.setGuitarRackLatency (guitarRack.getLatencySamples());
 
     {
         const float bpmQ = juce::jmax (40.0f, analyzer.getBpm());

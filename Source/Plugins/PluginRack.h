@@ -43,6 +43,7 @@ public:
     bool hasReadySlot() const noexcept;
     /** True when Slot 2 is loaded, ready, and not bypassed — skip AmpCab. */
     bool isVstAmpActive() const noexcept { return vstAmpActive.load (std::memory_order_relaxed) != 0; }
+    int getLatencySamples() const noexcept { return latencySum.load (std::memory_order_relaxed); }
 
     PluginHost& getHost() noexcept { return host; }
 
@@ -106,6 +107,8 @@ private:
     void refreshVstAmpFlag() noexcept;
     juce::File slotStateFile() const;
     std::atomic<int> vstAmpActive { 0 };
+    std::atomic<int> latencySum { 0 };
+    void refreshLatency() noexcept;
 
     PluginHost& host;
     std::array<Slot, NumSlots> slots;

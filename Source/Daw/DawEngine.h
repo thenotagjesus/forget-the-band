@@ -27,6 +27,15 @@ public:
 
     juce::String startRecord();
     void stopRecord();
+    void setDeviceLatency (int inSamples, int outSamples) noexcept
+    {
+        inputLatency.store (juce::jmax (0, inSamples), std::memory_order_relaxed);
+        outputLatency.store (juce::jmax (0, outSamples), std::memory_order_relaxed);
+    }
+    void setGuitarRackLatency (int s) noexcept
+    {
+        guitarRackLatency.store (juce::jmax (0, s), std::memory_order_relaxed);
+    }
 
     int64_t getPosition() const noexcept { return position.load (std::memory_order_relaxed); }
     void setPosition (int64_t s) noexcept { position.store (juce::jmax ((int64_t) 0, s), std::memory_order_relaxed); }
@@ -56,6 +65,7 @@ private:
         juce::File file;
         std::atomic<int> armed { 0 };
         int samplesWritten = 0;
+        int64_t firstWritePos = -1;
     };
 
     class Worker : public juce::Thread
@@ -70,6 +80,13 @@ private:
     void mixClips (int track, float* l, float* r, int64_t pos, int n) noexcept;
     void writerLoop();
     void finishTakes();
+    void punchTrim (int track, int64_t a, int64_t b);
+    int pdcSamples (int track) const noexcept;
+    bool inPunchWindow (int64_t abs) const noexcept;
+
+    std::atomic<int> inputLatency { 0 };
+    std::atomic<int> outputLatency { 0 };
+    std::atomic<int> guitarRackLatency { 0 };
 
     PluginHost& host;
     Project project;

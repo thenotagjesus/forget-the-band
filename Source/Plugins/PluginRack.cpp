@@ -42,6 +42,7 @@ void PluginRack::prepare (double sr, int samplesPerBlock)
             slot.ready.store (1, std::memory_order_release);
         }
     }
+    refreshLatency();
 }
 
 void PluginRack::reset()
@@ -67,6 +68,21 @@ void PluginRack::release()
         unloadPlugin (i);
 }
 
+void PluginRack::refreshLatency() noexcept
+{
+    int sum = 0;
+    for (auto& s : slots)
+    {
+        if (s.ready.load (std::memory_order_acquire) == 0)
+            continue;
+        if (s.bypass.load (std::memory_order_relaxed) != 0)
+            continue;
+        if (s.instance != nullptr)
+            sum += s.instance->getLatencySamples();
+    }
+    latencySum.store (sum, std::memory_order_relaxed);
+}
+
 void PluginRack::refreshVstAmpFlag() noexcept
 {
     auto& s = slots[(size_t) AmpReplace];
@@ -74,6 +90,7 @@ void PluginRack::refreshVstAmpFlag() noexcept
                  && s.bypass.load (std::memory_order_relaxed) == 0
                  && s.instance != nullptr;
     vstAmpActive.store (on ? 1 : 0, std::memory_order_relaxed);
+    refreshLatency();
 }
 
 void PluginRack::setBypass (int slot, bool bypass) noexcept

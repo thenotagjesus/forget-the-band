@@ -428,6 +428,13 @@ void MainComponent::audioDeviceAboutToStart (juce::AudioIODevice* device)
     const double sr = (device != nullptr) ? device->getCurrentSampleRate() : 44100.0;
     const int block = (device != nullptr) ? device->getCurrentBufferSizeSamples() : 256;
     processor.prepare (sr, juce::jmax (block, 256), 2);
+    int inLat = 0, outLat = 0;
+    if (device != nullptr)
+    {
+        inLat = device->getInputLatencyInSamples();
+        outLat = device->getOutputLatencyInSamples();
+    }
+    processor.setDeviceLatency (inLat, outLat);
 }
 
 void MainComponent::audioDeviceStopped()

@@ -96,6 +96,10 @@ public:
 
     juce::String startRecording();
     void stopRecording();
+    void setDeviceLatency (int inSamples, int outSamples) noexcept
+    {
+        daw.setDeviceLatency (inSamples, outSamples);
+    }
     bool isRecording() const noexcept { return writer.isRecording() || daw.isRecording(); }
 
     float getInputPeak()  const noexcept { return inputPeak.load  (std::memory_order_relaxed); }

@@ -1,5 +1,6 @@
 #include "Daw/DawEngine.h"
 #include <cstring>
+#include <vector>
 
 DawEngine::DawEngine (PluginHost& h)
     : host (h), project (h)
@@ -96,6 +97,7 @@ juce::String DawEngine::startRecord()
         auto& c = rec[(size_t) i];
         c.writer.reset();
         c.samplesWritten = 0;
+        c.firstWritePos = -1;
         c.fifo.reset();
         const bool on = project.tracks[(size_t) i].arm.load (std::memory_order_relaxed) != 0;
         c.armed.store (on ? 1 : 0);
@@ -184,10 +186,13 @@ void DawEngine::finishTakes()
             continue;
         auto clip = std::make_unique<Daw::Clip>();
         clip->id = project.nextClipId++;
-        clip->startSamples = recordOrigin;
+        const int64_t origin = (c.firstWritePos >= 0) ? c.firstWritePos : recordOrigin;
+        clip->startSamples = juce::jmax ((int64_t) 0, origin - (int64_t) pdcSamples (t));
         clip->lengthSamples = c.samplesWritten;
         clip->file = c.file;
         clip->name = c.file.getFileNameWithoutExtension();
+        if (project.cycle && project.loopEnd > project.loopStart)
+            punchTrim (t, project.loopStart, project.loopEnd);
         project.loadClipAudio (*clip);
         Daw::UndoItem u;
         u.type = Daw::UndoItem::Add;
@@ -323,31 +328,51 @@ void DawEngine::process (float* guitarL, float* guitarR,
             auto& c = rec[(size_t) t];
             if (c.armed.load (std::memory_order_relaxed) == 0)
                 continue;
-            if (c.fifo.getFreeSpace() < n)
+
+            // INPUT ONLY. Never the post-mixClips work buffer (that rebakes old takes).
+            const float* srcL = guitarL;
+            const float* srcR = guitarR;
+            if (t == Daw::kDrums) { srcL = drumsL; srcR = drumsR; }
+            else if (t == Daw::kBass) { srcL = bassL; srcR = bassR; }
+            else if (t == Daw::kKeys) { srcL = keysL; srcR = keysR; }
+            if (srcL == nullptr)
                 continue;
-            const float* srcL = (t == Daw::kGuitar && guitarL != nullptr) ? guitarL
-                              : project.tracks[(size_t) t].work.getReadPointer (0);
-            const float* srcR = (t == Daw::kGuitar && guitarR != nullptr) ? guitarR
-                              : project.tracks[(size_t) t].work.getReadPointer (1);
-            // Band live record: use bus before fader (work already has live+clips).
-            if (t >= Daw::kDrums && t <= Daw::kKeys && sessionLive)
+            if (srcR == nullptr)
+                srcR = srcL;
+
+            int i = 0;
+            while (i < n)
             {
-                srcL = project.tracks[(size_t) t].work.getReadPointer (0);
-                srcR = project.tracks[(size_t) t].work.getReadPointer (1);
+                if (! inPunchWindow (pos + i))
+                {
+                    ++i;
+                    continue;
+                }
+                int j = i + 1;
+                while (j < n && inPunchWindow (pos + j))
+                    ++j;
+                const int len = j - i;
+                if (c.firstWritePos < 0)
+                    c.firstWritePos = pos + i;
+                const int room = c.fifo.getFreeSpace();
+                const int take = juce::jmin (len, room);
+                if (take <= 0)
+                    break;
+                int s1 = 0, n1 = 0, s2 = 0, n2 = 0;
+                c.fifo.prepareToWrite (take, s1, n1, s2, n2);
+                for (int k = 0; k < n1; ++k)
+                {
+                    c.ringL[(size_t) (s1 + k)] = srcL[i + k];
+                    c.ringR[(size_t) (s1 + k)] = srcR[i + k];
+                }
+                for (int k = 0; k < n2; ++k)
+                {
+                    c.ringL[(size_t) (s2 + k)] = srcL[i + n1 + k];
+                    c.ringR[(size_t) (s2 + k)] = srcR[i + n1 + k];
+                }
+                c.fifo.finishedWrite (n1 + n2);
+                i = j;
             }
-            int s1 = 0, n1 = 0, s2 = 0, n2 = 0;
-            c.fifo.prepareToWrite (n, s1, n1, s2, n2);
-            for (int i = 0; i < n1; ++i)
-            {
-                c.ringL[(size_t) (s1 + i)] = srcL[i];
-                c.ringR[(size_t) (s1 + i)] = srcR[i];
-            }
-            for (int i = 0; i < n2; ++i)
-            {
-                c.ringL[(size_t) (s2 + i)] = srcL[n1 + i];
-                c.ringR[(size_t) (s2 + i)] = srcR[n1 + i];
-            }
-            c.fifo.finishedWrite (n1 + n2);
         }
     }
 
@@ -358,6 +383,78 @@ void DawEngine::process (float* guitarL, float* guitarR,
             pos = project.loopStart + (pos - project.loopEnd);
         position.store (pos, std::memory_order_relaxed);
     }
+}
+
+bool DawEngine::inPunchWindow (int64_t abs) const noexcept
+{
+    if (! project.cycle || project.loopEnd <= project.loopStart)
+        return true;
+    return abs >= project.loopStart && abs < project.loopEnd;
+}
+
+int DawEngine::pdcSamples (int track) const noexcept
+{
+    int lat = inputLatency.load (std::memory_order_relaxed)
+            + outputLatency.load (std::memory_order_relaxed);
+    if (track == Daw::kGuitar)
+        lat += guitarRackLatency.load (std::memory_order_relaxed);
+    if (track >= 0 && track < Daw::kNumTracks)
+    {
+        auto& tr = project.tracks[(size_t) track];
+        if (tr.inserts != nullptr)
+            lat += tr.inserts->getLatencySamples();
+    }
+    return juce::jmax (0, lat);
+}
+
+void DawEngine::punchTrim (int track, int64_t a, int64_t b)
+{
+    if (track < 0 || track >= Daw::kMasterIndex || b <= a)
+        return;
+    auto& clips = project.tracks[(size_t) track].clips;
+    std::vector<std::unique_ptr<Daw::Clip>> keep;
+    keep.reserve (clips.size() + 1);
+    for (auto& cp : clips)
+    {
+        if (! cp)
+            continue;
+        const int64_t cs = cp->startSamples;
+        const int64_t ce = cs + cp->lengthSamples;
+        if (ce <= a || cs >= b)
+        {
+            keep.push_back (std::move (cp));
+            continue;
+        }
+        auto cloneBody = [] (Daw::Clip& dst, const Daw::Clip& src)
+        {
+            dst.file = src.file;
+            dst.name = src.name;
+            dst.audio = src.audio;
+            dst.peaks = src.peaks;
+            dst.ready.store (src.ready.load (std::memory_order_relaxed));
+        };
+        if (cs < a)
+        {
+            auto left = std::make_unique<Daw::Clip>();
+            left->id = project.nextClipId++;
+            left->startSamples = cs;
+            left->fileOffset = cp->fileOffset;
+            left->lengthSamples = a - cs;
+            cloneBody (*left, *cp);
+            keep.push_back (std::move (left));
+        }
+        if (ce > b)
+        {
+            auto right = std::make_unique<Daw::Clip>();
+            right->id = project.nextClipId++;
+            right->startSamples = b;
+            right->fileOffset = cp->fileOffset + (b - cs);
+            right->lengthSamples = ce - b;
+            cloneBody (*right, *cp);
+            keep.push_back (std::move (right));
+        }
+    }
+    clips.swap (keep);
 }
 
 juce::String DawEngine::bounceMixdown (const juce::File& dest)
