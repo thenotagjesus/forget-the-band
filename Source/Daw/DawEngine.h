@@ -100,4 +100,8 @@ private:
     std::array<RecChan, Daw::kMasterIndex> rec {};
     std::unique_ptr<Worker> writer;
     std::atomic<int> recActive { 0 };
+
+    static constexpr int kPdcSize = 8192;
+    std::array<std::vector<float>, Daw::kMasterIndex> pdcL {}, pdcR {};
+    std::array<int, Daw::kMasterIndex> pdcW {};
 };

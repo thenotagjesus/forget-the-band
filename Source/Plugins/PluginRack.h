@@ -4,6 +4,7 @@
 #include "Plugins/PluginHost.h"
 #include <array>
 #include <atomic>
+#include <cstdint>
 
 /** Four insert slots for hosted VST3s (adapted from Centrophy Engine).
     Instantiation/prepare off the audio thread; the audio thread only processBlock()s
@@ -51,9 +52,14 @@ public:
     void processChain (float* left, float* right, int numSamples,
                        const juce::MidiBuffer& midi) noexcept;
 
-    /** Message / worker thread: createPluginInstance + prepare, then publish to audio thread. */
+    /** Worker thread instantiate. Never call createPluginInstance on the audio thread. */
     juce::String loadPlugin (int slot, const juce::PluginDescription& desc);
+    juce::String loadPlugin (int slot, const juce::PluginDescription& desc,
+                             const juce::MemoryBlock& state);
     void unloadPlugin (int slot);
+
+    void saveToXml (juce::XmlElement& xml) const;
+    void loadFromXml (const juce::XmlElement& xml);
 
     juce::String getSlotPluginName (int slot) const;
     juce::PluginDescription getSlotDescription (int slot) const;
@@ -101,10 +107,17 @@ private:
         std::unique_ptr<EditorWindow> editor;
         std::atomic<int> bypass { 1 };
         std::atomic<int> ready { 0 };
+        std::atomic<juce::AudioPluginInstance*> live { nullptr };
+        std::atomic<uint32_t> seq { 0 };
+        std::atomic<int> inAudio { 0 };
+        std::atomic<int> latency { 0 };
     };
 
     void closeEditorLocked (Slot& slot);
     void refreshVstAmpFlag() noexcept;
+    void publishInstance (Slot& slot, std::unique_ptr<juce::AudioPluginInstance> inst,
+                          const juce::PluginDescription& desc, bool bypassed);
+    void retireInstance (Slot& slot);
     juce::File slotStateFile() const;
     std::atomic<int> vstAmpActive { 0 };
     std::atomic<int> latencySum { 0 };

@@ -19,6 +19,12 @@ void DawEngine::prepare (double sr, int block)
         c.ringL.assign ((size_t) ring, 0.0f);
         c.ringR.assign ((size_t) ring, 0.0f);
     }
+    for (int t = 0; t < Daw::kMasterIndex; ++t)
+    {
+        pdcL[(size_t) t].assign ((size_t) kPdcSize, 0.0f);
+        pdcR[(size_t) t].assign ((size_t) kPdcSize, 0.0f);
+        pdcW[(size_t) t] = 0;
+    }
 }
 
 void DawEngine::release()
@@ -290,6 +296,42 @@ void DawEngine::process (float* guitarL, float* guitarR,
         }
         tr.peak.store (tr.peak.load (std::memory_order_relaxed) * 0.6f + pk * 0.4f,
                        std::memory_order_relaxed);
+    }
+
+    int lat[Daw::kMasterIndex] = {};
+    int maxLat = 0;
+    for (int t = 0; t < Daw::kMasterIndex; ++t)
+    {
+        int l = 0;
+        if (auto* ins = project.tracks[(size_t) t].inserts.get())
+            l += ins->getLatencySamples();
+        if (t == Daw::kGuitar)
+            l += guitarRackLatency.load (std::memory_order_relaxed);
+        lat[t] = l;
+        maxLat = juce::jmax (maxLat, l);
+    }
+    maxLat = juce::jmin (maxLat, kPdcSize - 1);
+    for (int t = 0; t < Daw::kMasterIndex; ++t)
+    {
+        const int d = juce::jmax (0, maxLat - lat[t]);
+        auto& tr = project.tracks[(size_t) t];
+        float* wl = tr.work.getWritePointer (0);
+        float* wr = tr.work.getWritePointer (1);
+        auto& dl = pdcL[(size_t) t];
+        auto& dr = pdcR[(size_t) t];
+        int w = pdcW[(size_t) t];
+        if ((int) dl.size() < kPdcSize)
+            continue; // not prepared; skip delay
+        for (int i = 0; i < n; ++i)
+        {
+            dl[(size_t) w] = wl[i];
+            dr[(size_t) w] = wr[i];
+            const int r = (w - d + kPdcSize) % kPdcSize;
+            wl[i] = dl[(size_t) r];
+            wr[i] = dr[(size_t) r];
+            w = (w + 1) % kPdcSize;
+        }
+        pdcW[(size_t) t] = w;
     }
 
     auto& mas = project.tracks[(size_t) Daw::kMasterIndex];

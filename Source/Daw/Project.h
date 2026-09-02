@@ -23,9 +23,9 @@ public:
 
     explicit Project (PluginHost& host);
     void resetNew (PluginHost& host, const juce::String& name);
-    juce::String save();
-    juce::String saveAs (const juce::File& folder);
-    juce::String load (const juce::File& folder, PluginHost& host);
+    juce::String save (PluginRack* guitarRack = nullptr);
+    juce::String saveAs (const juce::File& folder, PluginRack* guitarRack = nullptr);
+    juce::String load (const juce::File& folder, PluginHost& host, PluginRack* guitarRack = nullptr);
     void prepare (double sampleRate, int block);
     void ensureAudioFolder();
 

@@ -1452,7 +1452,7 @@ void SessionUI::doOpenProject()
         auto f = c.getResult();
         if (! f.isDirectory())
             return;
-        const auto err = proc.getDaw().getProject().load (f, proc.getPluginHost());
+        const auto err = proc.getDaw().getProject().load (f, proc.getPluginHost(), &proc.getGuitarRack());
         if (err.isNotEmpty())
         {
             juce::NativeMessageBox::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Open", err);
@@ -1468,7 +1468,7 @@ void SessionUI::doOpenProject()
 void SessionUI::doSaveProject()
 {
     proc.getDaw().getProject().notes = proc.getAnalyzer().copyHistory();
-    const auto err = proc.getDaw().getProject().save();
+    const auto err = proc.getDaw().getProject().save (&proc.getGuitarRack());
     if (err.isNotEmpty())
         juce::NativeMessageBox::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Save", err);
     else

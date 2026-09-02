@@ -166,16 +166,16 @@ bool Project::undoLast()
     return false;
 }
 
-juce::String Project::save()
+juce::String Project::save (PluginRack* guitarRack)
 {
     if (name.isEmpty())
         name = "Untitled";
     if (! folder.isDirectory())
         folder = SessionSettings::projectsDir().getChildFile (name);
-    return saveAs (folder);
+    return saveAs (folder, guitarRack);
 }
 
-juce::String Project::saveAs (const juce::File& dest)
+juce::String Project::saveAs (const juce::File& dest, PluginRack* guitarRack)
 {
     folder = dest;
     ensureAudioFolder();
@@ -212,7 +212,11 @@ juce::String Project::saveAs (const juce::File& dest)
             cx->setAttribute ("file", c->file.getRelativePathFrom (folder));
             cx->setAttribute ("name", c->name);
         }
+        if (t.inserts != nullptr)
+            t.inserts->saveToXml (*tx->createNewChildElement ("Inserts"));
     }
+    if (guitarRack != nullptr)
+        guitarRack->saveToXml (*xml.createNewChildElement ("GuitarRack"));
     auto* nx = xml.createNewChildElement ("Notes");
     for (const auto& n : notes)
     {
@@ -231,7 +235,7 @@ juce::String Project::saveAs (const juce::File& dest)
     return {};
 }
 
-juce::String Project::load (const juce::File& dest, PluginHost& host)
+juce::String Project::load (const juce::File& dest, PluginHost& host, PluginRack* guitarRack)
 {
     auto xf = dest.getChildFile ("project.xml");
     auto xml = juce::XmlDocument::parse (xf);
@@ -288,7 +292,13 @@ juce::String Project::load (const juce::File& dest, PluginHost& host)
             loadClipAudio (*c);
             t.clips.push_back (std::move (c));
         }
+        if (auto* ins = tx->getChildByName ("Inserts"))
+            if (t.inserts != nullptr)
+                t.inserts->loadFromXml (*ins);
     }
+    if (guitarRack != nullptr)
+        if (auto* gr = xml->getChildByName ("GuitarRack"))
+            guitarRack->loadFromXml (*gr);
     if (auto* nx = xml->getChildByName ("Notes"))
     {
         for (auto* e = nx->getFirstChildElement(); e != nullptr; e = e->getNextElement())
