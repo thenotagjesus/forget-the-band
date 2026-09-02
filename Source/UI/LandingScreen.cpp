@@ -96,7 +96,7 @@ LandingScreen::LandingScreen (SessionProcessor& processor)
     setOpaque (true);
     setWantsKeyboardFocus (true);
 
-    title.setText ("F#$*ktheband", juce::dontSendNotification);
+    title.setText ("Forget The Band", juce::dontSendNotification);
     title.setColour (juce::Label::textColourId, juce::Colour (SessionLookAndFeel::kAccent));
     title.setJustificationType (juce::Justification::centred);
     subtitle.setText ("Who's in the room?", juce::dontSendNotification);

@@ -2,14 +2,26 @@
 
 #include <JuceHeader.h>
 
-/** User-app-data paths for persisted device + UI state. */
+/** User-app-data and documents paths for Forget The Band. */
 namespace SessionSettings
 {
+    inline constexpr const char* kProductFolder = "ForgetTheBand";
+    inline constexpr const char* kDisplayName   = "Forget The Band";
+
     inline juce::File appDir()
     {
         auto d = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
                      .getChildFile ("Centrophy")
-                     .getChildFile ("FtheBand");
+                     .getChildFile (kProductFolder);
+        d.createDirectory();
+        return d;
+    }
+
+    inline juce::File productDir()
+    {
+        auto d = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+                     .getChildFile ("Centrophy")
+                     .getChildFile (kProductFolder);
         d.createDirectory();
         return d;
     }
@@ -19,10 +31,14 @@ namespace SessionSettings
 
     inline juce::File projectsDir()
     {
-        auto d = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
-                     .getChildFile ("Centrophy")
-                     .getChildFile ("FtheBand")
-                     .getChildFile ("projects");
+        auto d = productDir().getChildFile ("projects");
+        d.createDirectory();
+        return d;
+    }
+
+    inline juce::File stemsDir()
+    {
+        auto d = productDir().getChildFile ("stems");
         d.createDirectory();
         return d;
     }

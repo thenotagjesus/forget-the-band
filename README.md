@@ -1,4 +1,4 @@
-# F#$*ktheband
+# Forget The Band
 
 **Centrophy** — a live follower band for guitar.
 
@@ -6,9 +6,9 @@ Plug in, start a session, and a synthesized drums / bass / keys trio jams with y
 in real time. This is not a song player and not a full amp-sim suite. It listens
 to your playing (pitch, key, pulse, how busy you are) and follows.
 
-Product: **F#$*ktheband** · Company: **Centrophy** · Bundle ID: `com.centrophy.fucktheband`
+Product: **Forget The Band** · Company: **Centrophy** · Bundle ID: `com.centrophy.forgettheband`
 
-Window title is **F#$*ktheband**. Windows forbids `*` in filenames, so the binary is `FtheBand.exe`.
+Window title is **Forget The Band**. Binary name on Windows is `ForgetTheBand.exe`.
 
 Built with JUCE 8.0.8 (FetchContent, C++20). Windows-first desktop app. Version **2.0**.
 
@@ -68,7 +68,7 @@ Start and stop are atomic across all buses: guitar, drums, bass, keys, master.
 
 Default device hint: 44.1 kHz, buffer **128** samples (falls back to **256**).
 Last device and buffer size are restored from
-`user app data/Centrophy/Session/audio.xml` on launch.
+`user app data/Centrophy/ForgetTheBand/audio.xml` on launch.
 
 ## Guitar path
 
@@ -92,9 +92,9 @@ VST3 host: scan on a worker thread, dead-man's pedal, `suspendProcessing` before
 Two views in one window:
 
 - **Live band** — set Style, Form (Vamp / Song / 12-Bar / Wander), Scale, Tempo, Feel (Grid / Ahead / Behind / Swing), then **Start**. The band stays silent until your first notes, then count-in (optional) and groove. **Keep Groove** (default on) holds a floor so rests do not kill the kit. **Lock Tempo** is on by default. Dual meters: You vs Band (band lags). Chord name + Roman + next-chord telegraph + 2D neck (filled chord tones, outlined scale tones).
-- **Arrange** — 8 audio tracks + Drums/Bass/Keys + Master. Play / Stop / Record / RTZ / Cycle. Record writes 32-bit float takes into `Documents/Centrophy/FtheBand/projects/<name>/`. New / Open / Save / Bounce. Per-track 4 VST3 inserts. Undo for clip move/delete.
+- **Arrange** — 8 audio tracks + Drums/Bass/Keys + Master. Play / Stop / Record / RTZ / Cycle. Record writes 32-bit float takes into `Documents/Centrophy/ForgetTheBand/projects/<name>/`. New / Open / Save / Bounce. Per-track 4 VST3 inserts. Undo for clip move/delete.
 
-Projects: `Documents/Centrophy/FtheBand/projects/<name>/project.xml` + `audio/`.
+Projects: `Documents/Centrophy/ForgetTheBand/projects/<name>/project.xml` + `audio/`.
 
 ## Band styles
 
@@ -116,12 +116,12 @@ tom/snare fill and crashes on the next downbeat.
 2. Open an **x64 Native Tools Command Prompt for VS 2022** (or Developer PowerShell):
 
 ```bat
-cd path\to\CentrophySession
+cd path\to\forget-the-band
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release -j
 ```
 
-Binary: `build/Session_artefacts/Release/FtheBand.exe`
+Binary: `build/Session_artefacts/Release/ForgetTheBand.exe`
 
 Audio: **WASAPI** (`Windows Audio` / `Windows Audio Exclusive`) is always
 available. Prefer 44.1 kHz, buffer 128–256, 1 in / 2 out. Open **Audio** in the
@@ -194,7 +194,7 @@ records sample rate, length, style, key, and BPM.
 Default location:
 
 ```
-Documents/Centrophy/FtheBand/stems/session-YYYYMMDD-HHMMSS/
+Documents/Centrophy/ForgetTheBand/stems/session-YYYYMMDD-HHMMSS/
 ```
 
 The path, elapsed `mm:ss`, and a pulsing REC indicator are shown while armed.

@@ -91,7 +91,7 @@ SessionUI::SessionUI (SessionProcessor& processor, juce::AudioDeviceManager& dev
     setLookAndFeel (&look);
     setOpaque (true);
 
-    product.setText ("F#$*ktheband", juce::dontSendNotification);
+    product.setText ("Forget The Band", juce::dontSendNotification);
     product.setColour (juce::Label::textColourId, juce::Colour (SessionLookAndFeel::kAccent));
     brand.setText ("Centrophy", juce::dontSendNotification);
     brand.setColour (juce::Label::textColourId, juce::Colour (SessionLookAndFeel::kMuted));
@@ -104,7 +104,7 @@ SessionUI::SessionUI (SessionProcessor& processor, juce::AudioDeviceManager& dev
     barReadout.setJustificationType (juce::Justification::centred);
     tunerNote.setText ("--", juce::dontSendNotification);
     tunerNote.setJustificationType (juce::Justification::centred);
-    recPath.setText ("Stems: Documents/Centrophy/FtheBand/stems/", juce::dontSendNotification);
+    recPath.setText ("Stems: Documents/Centrophy/ForgetTheBand/stems/", juce::dontSendNotification);
     recPath.setColour (juce::Label::textColourId, juce::Colour (SessionLookAndFeel::kMuted));
     recTime.setText ("", juce::dontSendNotification);
     recTime.setJustificationType (juce::Justification::centredLeft);

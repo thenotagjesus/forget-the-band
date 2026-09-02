@@ -30,11 +30,11 @@ FetchContent_MakeAvailable(juce)
 
 juce_add_gui_app(Session
     COMPANY_NAME "Centrophy"
-    PRODUCT_NAME "FtheBand"
-    BUNDLE_ID com.centrophy.fucktheband
+    PRODUCT_NAME "ForgetTheBand"
+    BUNDLE_ID com.centrophy.forgettheband
     VERSION ${PROJECT_VERSION}
     MICROPHONE_PERMISSION_ENABLED TRUE
-    MICROPHONE_PERMISSION_TEXT "Session needs audio input for your guitar."
+    MICROPHONE_PERMISSION_TEXT "Forget The Band needs audio input for your guitar."
     NEEDS_WEB_BROWSER FALSE
     NEEDS_CURL FALSE
 )

@@ -1,4 +1,5 @@
 #include "Recording/StemWriter.h"
+#include "SessionSettings.h"
 #include <cstring>
 
 const char* StemWriter::stemFileName (int s)
@@ -82,10 +83,7 @@ juce::String StemWriter::beginRecording()
 {
     stop();
 
-    sessionDir = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
-                     .getChildFile ("Centrophy")
-                     .getChildFile ("FtheBand")
-                     .getChildFile ("stems")
+    sessionDir = SessionSettings::stemsDir()
                      .getChildFile ("session-" + juce::Time::getCurrentTime().formatted ("%Y%m%d-%H%M%S"));
 
     if (! sessionDir.createDirectory())
@@ -128,7 +126,7 @@ void StemWriter::writeSidecar()
         return;
 
     juce::String txt;
-    txt << "F#$*ktheband stems\n";
+    txt << "Forget The Band stems\n";
     txt << "sampleRate=" << sampleRate << "\n";
     txt << "lengthSamples=" << recordedLength.load() << "\n";
     txt << "lengthSeconds=" << getRecordedSeconds() << "\n";

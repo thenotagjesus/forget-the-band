@@ -4,7 +4,7 @@
 class SessionApplication : public juce::JUCEApplication
 {
 public:
-    const juce::String getApplicationName() override    { return "F#$*ktheband"; }
+    const juce::String getApplicationName() override    { return "Forget The Band"; }
     const juce::String getApplicationVersion() override { return "2.0.0"; }
     bool moreThanOneInstanceAllowed() override          { return true; }
 
