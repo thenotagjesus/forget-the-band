@@ -18,6 +18,7 @@ Built with JUCE 8.0.8 (FetchContent, C++20). Windows-first desktop app. Version 
   voicing (no IR files) → tempo-sync delay → hall-ish reverb send
 - Tuner: nearest note + cents needle from the analysis thread
 - Follower band: **Rock, Blues, Metal, Funk, Jazz** — original synthesized patterns
+- Each seated member has a voice picker (kit / bass / keys), independent of jam Style
 - Bar-aware drum fills every 8 bars (extra fills at high intensity) + crash on the next downbeat
 - Intensity raises hat density, fill chance, bass motion, and key velocity
 - Auto key + BPM with manual override; auto-lock after a few stable bars

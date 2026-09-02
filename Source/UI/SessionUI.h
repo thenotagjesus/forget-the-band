@@ -85,6 +85,8 @@ private:
     juce::Label brand, product, keyReadout, bpmReadout, barReadout, recPath;
     juce::Label tunerNote, recTime, projectLbl;
     juce::ComboBox styleBox, keyBox, formBox, scaleBox, feelBox, phraseBox, delayDivBox;
+    juce::ComboBox kitBox, bassVoiceBox, keysVoiceBox;
+    juce::Label kitLbl, bassVoiceLbl, keysVoiceLbl;
     juce::ToggleButton autoKey { "Auto Key" }, autoBpm { "Auto BPM" }, countInToggle { "Count-in" };
     juce::ToggleButton lockTempo { "Lock Tempo" }, lockIntensity { "Lock Intensity" };
     juce::ToggleButton grooveFloor { "Keep Groove" }, fadeSilence { "Fade on rest" };

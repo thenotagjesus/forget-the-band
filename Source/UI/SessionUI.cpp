@@ -128,6 +128,25 @@ SessionUI::SessionUI (SessionProcessor& processor, juce::AudioDeviceManager& dev
     addAndMakeVisible (followLbl);
     addAndMakeVisible (styleBox);
 
+    kitLbl.setText ("Kit", juce::dontSendNotification);
+    bassVoiceLbl.setText ("Bass", juce::dontSendNotification);
+    keysVoiceLbl.setText ("Keys", juce::dontSendNotification);
+    for (int i = 0; i < (int) FollowerBand::DrumKit::NumKits; ++i)
+        kitBox.addItem (FollowerBand::drumKitName (i), i + 1);
+    for (int i = 0; i < (int) FollowerBand::BassVoice::NumVoices; ++i)
+        bassVoiceBox.addItem (FollowerBand::bassVoiceName (i), i + 1);
+    for (int i = 0; i < (int) FollowerBand::KeysVoice::NumVoices; ++i)
+        keysVoiceBox.addItem (FollowerBand::keysVoiceName (i), i + 1);
+    kitBox.setSelectedId (1, juce::dontSendNotification);
+    bassVoiceBox.setSelectedId (1, juce::dontSendNotification);
+    keysVoiceBox.setSelectedId (1, juce::dontSendNotification);
+    addAndMakeVisible (kitLbl);
+    addAndMakeVisible (bassVoiceLbl);
+    addAndMakeVisible (keysVoiceLbl);
+    addAndMakeVisible (kitBox);
+    addAndMakeVisible (bassVoiceBox);
+    addAndMakeVisible (keysVoiceBox);
+
     keyBox.addItemList ({ "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }, 1);
     keyBox.setSelectedId (5, juce::dontSendNotification); // E
     autoKey.setToggleState (true, juce::dontSendNotification);
@@ -351,6 +370,24 @@ void SessionUI::wireControls()
     {
         const int id = styleBox.getSelectedId();
         proc.getBand().setStyle ((FollowerBand::Style) juce::jlimit (0, (int) FollowerBand::Style::NumStyles - 1, id - 1));
+        markDirty();
+    };
+    kitBox.onChange = [this]
+    {
+        proc.getBand().setDrumKit ((FollowerBand::DrumKit) juce::jlimit (0, (int) FollowerBand::DrumKit::NumKits - 1,
+                                                                        kitBox.getSelectedId() - 1));
+        markDirty();
+    };
+    bassVoiceBox.onChange = [this]
+    {
+        proc.getBand().setBassVoice ((FollowerBand::BassVoice) juce::jlimit (0, (int) FollowerBand::BassVoice::NumVoices - 1,
+                                                                            bassVoiceBox.getSelectedId() - 1));
+        markDirty();
+    };
+    keysVoiceBox.onChange = [this]
+    {
+        proc.getBand().setKeysVoice ((FollowerBand::KeysVoice) juce::jlimit (0, (int) FollowerBand::KeysVoice::NumVoices - 1,
+                                                                            keysVoiceBox.getSelectedId() - 1));
         markDirty();
     };
 
@@ -630,6 +667,12 @@ void SessionUI::applyToProcessor()
 {
     proc.getBand().setStyle ((FollowerBand::Style) juce::jlimit (0, (int) FollowerBand::Style::NumStyles - 1,
                                                                 styleBox.getSelectedId() - 1));
+    proc.getBand().setDrumKit ((FollowerBand::DrumKit) juce::jlimit (0, (int) FollowerBand::DrumKit::NumKits - 1,
+                                                                    kitBox.getSelectedId() - 1));
+    proc.getBand().setBassVoice ((FollowerBand::BassVoice) juce::jlimit (0, (int) FollowerBand::BassVoice::NumVoices - 1,
+                                                                        bassVoiceBox.getSelectedId() - 1));
+    proc.getBand().setKeysVoice ((FollowerBand::KeysVoice) juce::jlimit (0, (int) FollowerBand::KeysVoice::NumVoices - 1,
+                                                                        keysVoiceBox.getSelectedId() - 1));
     if (autoKey.getToggleState())
         proc.getAnalyzer().unlockKey();
     else
@@ -719,6 +762,9 @@ void SessionUI::saveSettings()
 void SessionUI::syncFromSetup (const SessionSettings::Setup& s)
 {
     styleBox.setSelectedId (s.style + 1, juce::dontSendNotification);
+    kitBox.setSelectedId        (s.drumsKit  + 1, juce::dontSendNotification);
+    bassVoiceBox.setSelectedId  (s.bassVoice + 1, juce::dontSendNotification);
+    keysVoiceBox.setSelectedId  (s.keysVoice + 1, juce::dontSendNotification);
     formBox.setSelectedId  (s.form + 1, juce::dontSendNotification);
     scaleBox.setSelectedId (s.scale + 1, juce::dontSendNotification);
     feelBox.setSelectedId  (s.feel + 1, juce::dontSendNotification);
@@ -740,6 +786,9 @@ SessionSettings::Setup SessionUI::readSetup() const
     s.bassIn  = proc.getBand().isMemberEnabled (FollowerBand::MemberBass);
     s.keysIn  = proc.getBand().isMemberEnabled (FollowerBand::MemberKeys);
     s.style   = juce::jlimit (0, 4, styleBox.getSelectedId() - 1);
+    s.drumsKit  = juce::jlimit (0, 4, kitBox.getSelectedId() - 1);
+    s.bassVoice = juce::jlimit (0, 3, bassVoiceBox.getSelectedId() - 1);
+    s.keysVoice = juce::jlimit (0, 4, keysVoiceBox.getSelectedId() - 1);
     s.form    = juce::jlimit (0, 3, formBox.getSelectedId() - 1);
     s.scale   = juce::jlimit (0, 3, scaleBox.getSelectedId() - 1);
     s.feel    = juce::jlimit (0, 3, feelBox.getSelectedId() - 1);
@@ -1069,9 +1118,20 @@ void SessionUI::resized()
     }
 
     r.removeFromTop (sx (6));
-    auto mixH = sx (168);
+    auto mixH = sx (186);
     auto mixArea = r.removeFromBottom (mixH);
-    mixLbl.setBounds (mixArea.removeFromTop (sx (16)));
+    {
+        auto mixHead = mixArea.removeFromTop (sx (28));
+        mixLbl.setBounds (mixHead.removeFromLeft (sx (58)).reduced (0, sx (4)));
+        kitLbl.setBounds (mixHead.removeFromLeft (sx (28)).reduced (0, sx (6)));
+        kitBox.setBounds (mixHead.removeFromLeft (sx (96)).reduced (sx (2), sx (2)));
+        mixHead.removeFromLeft (sx (8));
+        bassVoiceLbl.setBounds (mixHead.removeFromLeft (sx (36)).reduced (0, sx (6)));
+        bassVoiceBox.setBounds (mixHead.removeFromLeft (sx (88)).reduced (sx (2), sx (2)));
+        mixHead.removeFromLeft (sx (8));
+        keysVoiceLbl.setBounds (mixHead.removeFromLeft (sx (36)).reduced (0, sx (6)));
+        keysVoiceBox.setBounds (mixHead.removeFromLeft (sx (88)).reduced (sx (2), sx (2)));
+    }
     {
         auto sessionMix = mixArea.removeFromRight (sx (320));
         const int sw = sessionMix.getWidth() / 5;

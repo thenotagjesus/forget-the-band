@@ -20,6 +20,35 @@ public:
         NumStyles
     };
 
+    enum class DrumKit : int
+    {
+        Acoustic = 0,
+        Metal,
+        Jazz,
+        Funk,
+        Electro,
+        NumKits
+    };
+
+    enum class BassVoice : int
+    {
+        Finger = 0,
+        Pick,
+        Synth,
+        Slap,
+        NumVoices
+    };
+
+    enum class KeysVoice : int
+    {
+        Piano = 0,
+        EP,
+        Organ,
+        Pad,
+        Clav,
+        NumVoices
+    };
+
     enum class Form : int { Vamp = 0, Song, TwelveBar, Wander, NumForms };
     enum class Scale : int { Major = 0, Minor, Pentatonic, Blues, NumScales };
     enum class Feel : int { Grid = 0, Ahead, Behind, Swing, NumFeels };
@@ -41,6 +70,9 @@ public:
     void reset() noexcept;
 
     void setStyle (Style s) noexcept { style.store ((int) s, std::memory_order_relaxed); }
+    void setDrumKit (DrumKit k) noexcept { drumKit.store ((int) k, std::memory_order_relaxed); }
+    void setBassVoice (BassVoice v) noexcept { bassVoice.store ((int) v, std::memory_order_relaxed); }
+    void setKeysVoice (KeysVoice v) noexcept { keysVoice.store ((int) v, std::memory_order_relaxed); }
     void setForm (Form f) noexcept { form.store ((int) f, std::memory_order_relaxed); }
     void setScale (Scale s) noexcept { scaleKind.store ((int) s, std::memory_order_relaxed); }
     void setFeel (Feel f) noexcept { feel.store ((int) f, std::memory_order_relaxed); }
@@ -76,6 +108,9 @@ public:
     }
 
     Style getStyle() const noexcept { return (Style) style.load (std::memory_order_relaxed); }
+    DrumKit   getDrumKit()   const noexcept { return (DrumKit) drumKit.load (std::memory_order_relaxed); }
+    BassVoice getBassVoice() const noexcept { return (BassVoice) bassVoice.load (std::memory_order_relaxed); }
+    KeysVoice getKeysVoice() const noexcept { return (KeysVoice) keysVoice.load (std::memory_order_relaxed); }
     Form  getForm()  const noexcept { return (Form) form.load (std::memory_order_relaxed); }
     Scale getScale() const noexcept { return (Scale) scaleKind.load (std::memory_order_relaxed); }
     Feel  getFeel()  const noexcept { return (Feel) feel.load (std::memory_order_relaxed); }
@@ -110,6 +145,10 @@ public:
     juce::String romanName() const { return degreeName (getChordDegree()); }
 
     static const char* styleName (int i);
+    static const char* drumKitName (int i);
+    static const char* bassVoiceName (int i);
+    static const char* keysVoiceName (int i);
+    static void styleVoiceDefaults (int style, int& kit, int& bass, int& keys) noexcept;
     static const char* formName (int i);
     static const char* playerFormName (int i); // Jam / Radio / 12-Bar / Changes
     static const char* scaleName (int i);
@@ -122,6 +161,8 @@ private:
     float noise() noexcept;
     float oscSaw (float& phase, float freq) noexcept;
     float oscSin (float& phase, float freq) noexcept;
+    void  applyTimbre (DrumKit kit, BassVoice bv, KeysVoice kv) noexcept;
+    void  hitKeys (KeysVoice kv, float vel) noexcept;
     float midiToHz (float midi) const noexcept;
     int   degreeSemitones (int deg) const noexcept;
     bool  degreeIsMinor (Style st, int deg) const noexcept;
@@ -133,6 +174,9 @@ private:
     void  decideFill (Style st, float inten) noexcept;
 
     std::atomic<int> style { (int) Style::Rock };
+    std::atomic<int> drumKit { (int) DrumKit::Acoustic };
+    std::atomic<int> bassVoice { (int) BassVoice::Finger };
+    std::atomic<int> keysVoice { (int) KeysVoice::Piano };
     std::atomic<int> form { (int) Form::Song };
     std::atomic<int> scaleKind { (int) Scale::Pentatonic };
     std::atomic<int> feel { (int) Feel::Grid };
@@ -169,6 +213,16 @@ private:
     float kickHz = 60.0f;
     float tomHz = 140.0f;
     float hatDecayUse = 0.9982f;
+    float kickClick = 0;
+    float kickPitchRate = 0.99915f;
+    float kickFloorHz = 42.0f;
+    float kickNoiseAmt = 0.10f;
+    float kickDecayUse = 0.9994f;
+    float snareDecayUse = 0.9991f;
+    float snareToneAmt = 0.28f;
+    float snareToneHz = 188.0f;
+    float hatGain = 1.0f;
+    float rideGain = 1.0f;
     bool hatOpen = false;
     bool fillThisBar = false;
     bool pendingCrash = false;
@@ -176,6 +230,13 @@ private:
     float bassPhase = 0, bassEnv = 0, bassHz = 82.41f;
     float subPhase = 0;
     float bassPluck = 0;
+    float bassPop = 0;
+    float bassSawAmt = 1.0f;
+    float bassSqrAmt = 0.0f;
+    float bassSubAmt = 0.35f;
+    float bassPluckAmt = 0.22f;
+    float bassPluckDecay = 0.9945f;
+    float bassPopAmt = 0.0f;
 
     std::array<float, 4> keyPhase {};
     std::array<float, 4> keyHz {};
@@ -183,7 +244,13 @@ private:
     float keyTargetEnv = 0;
     float keyLag = 0.0004f;
     float keyHarmonic = 0.08f;
+    float keyTine = 0.0f;
+    float keyDetune = 0.0f;
+    float keyPercEnv = 0;
+    float keyPercDecay = 0.996f;
+    float keyTargetDecay = 0.9995f;
     bool keyStab = false;
+    int lastTimbreStamp = -1;
 
     int lastBassMidi = 40;
     int keyShift = 0;

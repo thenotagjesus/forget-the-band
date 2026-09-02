@@ -173,6 +173,9 @@ void SessionProcessor::setBandRoster (bool drums, bool bass, bool keys) noexcept
 void SessionProcessor::applyJamSetup (const SessionSettings::Setup& s) noexcept
 {
     band.setStyle ((FollowerBand::Style) juce::jlimit (0, (int) FollowerBand::Style::NumStyles - 1, s.style));
+    band.setDrumKit ((FollowerBand::DrumKit) juce::jlimit (0, (int) FollowerBand::DrumKit::NumKits - 1, s.drumsKit));
+    band.setBassVoice ((FollowerBand::BassVoice) juce::jlimit (0, (int) FollowerBand::BassVoice::NumVoices - 1, s.bassVoice));
+    band.setKeysVoice ((FollowerBand::KeysVoice) juce::jlimit (0, (int) FollowerBand::KeysVoice::NumVoices - 1, s.keysVoice));
     band.setForm  ((FollowerBand::Form)  juce::jlimit (0, (int) FollowerBand::Form::NumForms - 1, s.form));
     band.setScale ((FollowerBand::Scale) juce::jlimit (0, (int) FollowerBand::Scale::NumScales - 1, s.scale));
     band.setFeel  ((FollowerBand::Feel)  juce::jlimit (0, (int) FollowerBand::Feel::NumFeels - 1, s.feel));

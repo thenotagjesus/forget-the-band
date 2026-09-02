@@ -54,6 +54,8 @@ private:
     juce::Font uiFont (float px, bool bold = false) const;
     void applyFonts();
     void refreshRosterLabel();
+    void fillVoiceBoxes();
+    void suggestVoicesFromStyle (int style, bool force);
     bool keyPressed (const juce::KeyPress& key) override;
 
     SessionProcessor& proc;
@@ -64,6 +66,8 @@ private:
     ChairCard drumsCard { ChairCard::Drums, juce::Colour (SessionLookAndFeel::kDrums) };
     ChairCard bassCard  { ChairCard::Bass,  juce::Colour (SessionLookAndFeel::kBass)  };
     ChairCard keysCard  { ChairCard::Keys,  juce::Colour (SessionLookAndFeel::kKeys)  };
+    juce::ComboBox drumsKitBox, bassVoiceBox, keysVoiceBox;
+    int lastStyleForSuggest = 0;
 
     juce::Label styleLbl, formLbl, scaleLbl, feelLbl, keyLbl, bpmLbl;
     juce::ComboBox styleBox, formBox, scaleBox, feelBox, keyBox;

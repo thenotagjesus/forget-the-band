@@ -126,6 +126,11 @@ LandingScreen::LandingScreen (SessionProcessor& processor)
     bindChair (bassCard);
     bindChair (keysCard);
 
+    fillVoiceBoxes();
+    addAndMakeVisible (drumsKitBox);
+    addAndMakeVisible (bassVoiceBox);
+    addAndMakeVisible (keysVoiceBox);
+
     styleLbl.setText ("Style", juce::dontSendNotification);
     formLbl.setText ("Form", juce::dontSendNotification);
     scaleLbl.setText ("Scale", juce::dontSendNotification);
@@ -187,7 +192,11 @@ LandingScreen::LandingScreen (SessionProcessor& processor)
     addAndMakeVisible (deviceLbl);
 
     auto persist = [this] { persistSetup(); };
-    styleBox.onChange = persist;
+    styleBox.onChange = [this]
+    {
+        suggestVoicesFromStyle (styleBox.getSelectedId() - 1, false);
+        persistSetup();
+    };
     formBox.onChange  = persist;
     scaleBox.onChange = persist;
     feelBox.onChange  = persist;
@@ -195,6 +204,9 @@ LandingScreen::LandingScreen (SessionProcessor& processor)
     lockKey.onClick   = persist;
     slewToggle.onClick = persist;
     bpmSlider.onValueChange = persist;
+    drumsKitBox.onChange  = persist;
+    bassVoiceBox.onChange = persist;
+    keysVoiceBox.onChange = persist;
 
     loadSettings();
     applyFonts();
@@ -220,6 +232,10 @@ void LandingScreen::setSetup (const SessionSettings::Setup& s)
     bassCard.setSeated (s.bassIn);
     keysCard.setSeated (s.keysIn);
     styleBox.setSelectedId (s.style + 1, juce::dontSendNotification);
+    drumsKitBox.setSelectedId  (s.drumsKit  + 1, juce::dontSendNotification);
+    bassVoiceBox.setSelectedId (s.bassVoice + 1, juce::dontSendNotification);
+    keysVoiceBox.setSelectedId (s.keysVoice + 1, juce::dontSendNotification);
+    lastStyleForSuggest = s.style;
     formBox.setSelectedId  (s.form + 1, juce::dontSendNotification);
     scaleBox.setSelectedId (s.scale + 1, juce::dontSendNotification);
     feelBox.setSelectedId  (s.feel + 1, juce::dontSendNotification);
@@ -237,6 +253,9 @@ SessionSettings::Setup LandingScreen::getSetup() const
     s.bassIn  = bassCard.isSeated();
     s.keysIn  = keysCard.isSeated();
     s.style   = juce::jlimit (0, 4, styleBox.getSelectedId() - 1);
+    s.drumsKit  = juce::jlimit (0, 4, drumsKitBox.getSelectedId()  - 1);
+    s.bassVoice = juce::jlimit (0, 3, bassVoiceBox.getSelectedId() - 1);
+    s.keysVoice = juce::jlimit (0, 4, keysVoiceBox.getSelectedId() - 1);
     s.form    = juce::jlimit (0, 3, formBox.getSelectedId() - 1);
     s.scale   = juce::jlimit (0, 3, scaleBox.getSelectedId() - 1);
     s.feel    = juce::jlimit (0, 3, feelBox.getSelectedId() - 1);
@@ -250,6 +269,40 @@ SessionSettings::Setup LandingScreen::getSetup() const
 void LandingScreen::persistSetup()
 {
     SessionSettings::mergeSetup (getSetup());
+}
+
+void LandingScreen::fillVoiceBoxes()
+{
+    drumsKitBox.clear (juce::dontSendNotification);
+    bassVoiceBox.clear (juce::dontSendNotification);
+    keysVoiceBox.clear (juce::dontSendNotification);
+    for (int i = 0; i < (int) FollowerBand::DrumKit::NumKits; ++i)
+        drumsKitBox.addItem (FollowerBand::drumKitName (i), i + 1);
+    for (int i = 0; i < (int) FollowerBand::BassVoice::NumVoices; ++i)
+        bassVoiceBox.addItem (FollowerBand::bassVoiceName (i), i + 1);
+    for (int i = 0; i < (int) FollowerBand::KeysVoice::NumVoices; ++i)
+        keysVoiceBox.addItem (FollowerBand::keysVoiceName (i), i + 1);
+    drumsKitBox.setSelectedId (1, juce::dontSendNotification);
+    bassVoiceBox.setSelectedId (1, juce::dontSendNotification);
+    keysVoiceBox.setSelectedId (1, juce::dontSendNotification);
+}
+
+void LandingScreen::suggestVoicesFromStyle (int style, bool force)
+{
+    style = juce::jlimit (0, 4, style);
+    int kit = 0, bass = 0, keys = 0;
+    FollowerBand::styleVoiceDefaults (lastStyleForSuggest, kit, bass, keys);
+    const bool matchesPrev = drumsKitBox.getSelectedId()  - 1 == kit
+                          && bassVoiceBox.getSelectedId() - 1 == bass
+                          && keysVoiceBox.getSelectedId() - 1 == keys;
+    if (force || matchesPrev)
+    {
+        FollowerBand::styleVoiceDefaults (style, kit, bass, keys);
+        drumsKitBox.setSelectedId  (kit  + 1, juce::dontSendNotification);
+        bassVoiceBox.setSelectedId (bass + 1, juce::dontSendNotification);
+        keysVoiceBox.setSelectedId (keys + 1, juce::dontSendNotification);
+    }
+    lastStyleForSuggest = style;
 }
 
 void LandingScreen::setDeviceStatus (const juce::String& text)
@@ -399,10 +452,16 @@ void LandingScreen::resized()
         auto c = chairsBounds;
         const int gap = sx (14);
         const int w = (c.getWidth() - gap * 2) / 3;
-        drumsCard.setBounds (c.removeFromLeft (w).reduced (sx (4)));
+        const int comboH = sx (34);
+        auto place = [this, comboH] (juce::Rectangle<int> col, ChairCard& card, juce::ComboBox& box)
+        {
+            box.setBounds (col.removeFromBottom (comboH).reduced (sx (10), sx (2)));
+            card.setBounds (col.reduced (sx (4)));
+        };
+        place (c.removeFromLeft (w), drumsCard, drumsKitBox);
         c.removeFromLeft (gap);
-        bassCard.setBounds (c.removeFromLeft (w).reduced (sx (4)));
+        place (c.removeFromLeft (w), bassCard, bassVoiceBox);
         c.removeFromLeft (gap);
-        keysCard.setBounds (c.reduced (sx (4)));
+        place (c, keysCard, keysVoiceBox);
     }
 }
