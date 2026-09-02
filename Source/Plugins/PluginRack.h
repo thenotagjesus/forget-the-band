@@ -24,6 +24,9 @@ public:
 
     static const char* slotName (int id);
 
+    int orderAt (int pos) const noexcept;
+    void swapOrder (int posA, int posB);
+
     explicit PluginRack (PluginHost& host);
     ~PluginRack();
 
@@ -123,8 +126,12 @@ private:
     std::atomic<int> latencySum { 0 };
     void refreshLatency() noexcept;
 
+    juce::String orderString() const;
+    void applyOrderString (const juce::String& s);
+
     PluginHost& host;
     std::array<Slot, NumSlots> slots;
+    std::array<std::atomic<int>, NumSlots> order;
     bool persistSlots = true;
 
     double sampleRate = 44100.0;

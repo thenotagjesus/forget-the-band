@@ -483,9 +483,9 @@ void InputAnalyzer::analyseWindow (const float* x, int n) noexcept
         player = juce::jlimit (0.0f, 1.0f, 0.7f * player + 0.3f * onsetBusy);
     }
     playerEnergy.store (player, std::memory_order_relaxed);
-    // Require a pitched note, not broadband hiss (S/PDIF open / USB hash).
-    if ((rmsSmooth > 0.008f && conf > 0.28f && hz >= kMinHz && hz <= kMaxHz)
-        || (rmsSmooth > 0.025f && activitySmooth > 0.18f))
+    // pitched OR loud activity (strum / unpitched / noise floor above hiss)
+    if ((rmsSmooth > 0.006f && conf > 0.22f && hz >= kMinHz && hz <= kMaxHz)
+        || (rmsSmooth > 0.012f && activitySmooth > 0.10f))
         engaged.store (1, std::memory_order_relaxed);
 
     if (lockIntensity.load (std::memory_order_relaxed) == 0)

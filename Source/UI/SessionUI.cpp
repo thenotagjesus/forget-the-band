@@ -265,8 +265,8 @@ SessionUI::SessionUI (SessionProcessor& processor, juce::AudioDeviceManager& dev
         addAndMakeVisible (*dawStrips[(size_t) i]);
     }
 
-    static const char* gNames[] = { "PreAmp", "PostCab", "FxLoop", "Mix" };
-    static const char* tNames[] = { "Ins 1", "Ins 2", "Ins 3", "Ins 4" };
+    static const char* gNames[] = { "1  Pre", "2  Amp", "3  Post", "4  4" };
+    static const char* tNames[] = { "1  Pre", "2  Amp", "3  Post", "4  4" };
     for (int i = 0; i < 4; ++i)
     {
         gSlotLbl[(size_t) i].setText (gNames[i], juce::dontSendNotification);
@@ -275,8 +275,16 @@ SessionUI::SessionUI (SessionProcessor& processor, juce::AudioDeviceManager& dev
         tByp[(size_t) i].setButtonText ("Byp");
         gEd[(size_t) i].setButtonText ("Ed");
         tEd[(size_t) i].setButtonText ("Ed");
+        gUp[(size_t) i].setButtonText (juce::String::fromUTF8 ("\xe2\x86\x91"));
+        gDn[(size_t) i].setButtonText (juce::String::fromUTF8 ("\xe2\x86\x93"));
+        tUp[(size_t) i].setButtonText (juce::String::fromUTF8 ("\xe2\x86\x91"));
+        tDn[(size_t) i].setButtonText (juce::String::fromUTF8 ("\xe2\x86\x93"));
         gByp[(size_t) i].setClickingTogglesState (true);
         tByp[(size_t) i].setClickingTogglesState (true);
+        gUp[(size_t) i].setEnabled (i > 0);
+        gDn[(size_t) i].setEnabled (i < 3);
+        tUp[(size_t) i].setEnabled (i > 0);
+        tDn[(size_t) i].setEnabled (i < 3);
         addAndMakeVisible (gSlotLbl[(size_t) i]);
         addAndMakeVisible (tSlotLbl[(size_t) i]);
         addAndMakeVisible (gSlot[(size_t) i]);
@@ -285,6 +293,10 @@ SessionUI::SessionUI (SessionProcessor& processor, juce::AudioDeviceManager& dev
         addAndMakeVisible (tByp[(size_t) i]);
         addAndMakeVisible (gEd[(size_t) i]);
         addAndMakeVisible (tEd[(size_t) i]);
+        addAndMakeVisible (gUp[(size_t) i]);
+        addAndMakeVisible (gDn[(size_t) i]);
+        addAndMakeVisible (tUp[(size_t) i]);
+        addAndMakeVisible (tDn[(size_t) i]);
     }
 
 
@@ -334,10 +346,6 @@ SessionUI::SessionUI (SessionProcessor& processor, juce::AudioDeviceManager& dev
     midiBtn.setTooltip ("Save the notes you played as a .mid file");
     addAndMakeVisible (midiBtn);
     addAndMakeVisible (loadFxBtn);
-
-    static const char* gNamesFix[] = { "PreAmp", "Amp", "Post", "Slot 4" };
-    for (int i = 0; i < 4; ++i)
-        gSlotLbl[(size_t) i].setText (gNamesFix[i], juce::dontSendNotification);
 
     guitarStrip.level.setValue (proc.getBusLevel (SessionProcessor::Guitar));
     drumsStrip.level.setValue  (proc.getBusLevel (SessionProcessor::Drums));
@@ -537,11 +545,58 @@ void SessionUI::wireControls()
     bounceBtn.onClick = [this] { doBounce(); };
     undoBtn.onClick   = [this] { proc.getDaw().getProject().undoLast(); };
     midiBtn.onClick   = [this] { exportPlayerMidi(); };
-    loadFxBtn.onClick = [this] {
-        proc.getSamples().scanUserFx();
-        recPath.setText ("FX samples  " + SampleBank::userFxDir().getFullPathName()
-                          + "  (" + juce::String (proc.getSamples().userCount()) + ")",
-                         juce::dontSendNotification);
+    loadFxBtn.onClick = [this]
+    {
+        auto dir = SampleBank::userFxDir();
+        auto chooser = std::make_shared<juce::FileChooser> (
+            "Load FX samples", dir, "*.wav;*.aif;*.aiff;*.flac", true);
+        chooser->launchAsync (juce::FileBrowserComponent::openMode
+                              | juce::FileBrowserComponent::canSelectFiles
+                              | juce::FileBrowserComponent::canSelectMultipleFiles,
+                              [this, chooser, dir] (const juce::FileChooser& c)
+        {
+            auto files = c.getResults();
+            if (files.isEmpty())
+            {
+                dir.revealToUser();
+                proc.getSamples().scanUserFx();
+                return;
+            }
+            int n = 0;
+            for (auto& f : files)
+            {
+                if (! f.existsAsFile())
+                    continue;
+                auto dest = dir.getChildFile (f.getFileName());
+                if (f.getFullPathName() == dest.getFullPathName())
+                {
+                    ++n;
+                    continue;
+                }
+                if (dest.existsAsFile())
+                    dest.deleteFile();
+                if (f.copyFileTo (dest))
+                    ++n;
+            }
+            proc.getSamples().scanUserFx();
+            recPath.setText ("FX  " + juce::String (n) + " loaded  " + dir.getFullPathName(),
+                             juce::dontSendNotification);
+            if (n == 0)
+            {
+                juce::NativeMessageBox::showAsync (
+                    juce::MessageBoxOptions()
+                        .withIconType (juce::MessageBoxIconType::InfoIcon)
+                        .withTitle ("Load FX")
+                        .withMessage ("Put wav, aiff or flac files in:\n" + dir.getFullPathName())
+                        .withButton ("Reveal")
+                        .withButton ("OK"),
+                    [dir] (int r)
+                    {
+                        if (r == 1)
+                            dir.revealToUser();
+                    });
+            }
+        });
     };
     viewArrange.onClick = [this] { mixerFront = false; resized(); };
     viewMixer.onClick   = [this] { mixerFront = true;  resized(); };
@@ -557,7 +612,7 @@ void SessionUI::wireControls()
         proc.getPluginHost().scanDefaultVST3Paths ([this]
         {
             scanBtn.setEnabled (true);
-            scanBtn.setButtonText ("Scan VST3");
+            scanBtn.setButtonText ("Plugins");
             refreshPluginCombos();
         });
     };
@@ -626,6 +681,26 @@ void SessionUI::wireControls()
                         [this] () -> PluginRack& { return proc.getGuitarRack(); }, i);
         bindPluginSlot (tSlot[(size_t) i], tByp[(size_t) i], tEd[(size_t) i],
                         [this] () -> PluginRack& { return selectedTrackRack(); }, i);
+        gUp[(size_t) i].onClick = [this, i]
+        {
+            proc.getGuitarRack().swapOrder (i, i - 1);
+            refreshPluginCombos();
+        };
+        gDn[(size_t) i].onClick = [this, i]
+        {
+            proc.getGuitarRack().swapOrder (i, i + 1);
+            refreshPluginCombos();
+        };
+        tUp[(size_t) i].onClick = [this, i]
+        {
+            selectedTrackRack().swapOrder (i, i - 1);
+            refreshPluginCombos();
+        };
+        tDn[(size_t) i].onClick = [this, i]
+        {
+            selectedTrackRack().swapOrder (i, i + 1);
+            refreshPluginCombos();
+        };
     }
     refreshPluginCombos();
     refreshDawMixer();
@@ -911,6 +986,11 @@ void SessionUI::applyFonts()
     bpmLbl.setFont (uiFont (13.0f));
     guitarVstLbl.setFont (uiFont (12.0f));
     trackVstLbl.setFont (uiFont (12.0f));
+    for (int i = 0; i < 4; ++i)
+    {
+        gSlotLbl[(size_t) i].setFont (uiFont (11.0f));
+        tSlotLbl[(size_t) i].setFont (uiFont (11.0f));
+    }
     projectLbl.setFont (uiFont (13.0f, true));
     chordName.setFont (uiFont (26.0f, true));
     playerNote.setFont (uiFont (16.0f, true));
@@ -1144,17 +1224,19 @@ void SessionUI::resized()
     }
 
     r.removeFromTop (sx (6));
-    auto vstRow = r.removeFromTop (sx (52));
+    auto vstRow = r.removeFromTop (sx (64));
     {
-        guitarVstLbl.setBounds (vstRow.removeFromLeft (sx (88)).reduced (0, sx (14)));
-        scanBtn.setBounds (vstRow.removeFromRight (sx (92)).reduced (sx (2), sx (8)));
+        guitarVstLbl.setBounds (vstRow.removeFromLeft (sx (78)).reduced (0, sx (18)));
+        scanBtn.setBounds (vstRow.removeFromRight (sx (72)).reduced (sx (2), sx (12)));
         const int slotW = vstRow.getWidth() / 4;
         for (int i = 0; i < 4; ++i)
         {
             auto c = vstRow.removeFromLeft (slotW).reduced (sx (2), sx (2));
-            gSlotLbl[(size_t) i].setBounds (c.removeFromTop (sx (12)));
-            gByp[(size_t) i].setBounds (c.removeFromRight (sx (36)));
-            gEd[(size_t) i].setBounds (c.removeFromRight (sx (32)));
+            gSlotLbl[(size_t) i].setBounds (c.removeFromTop (sx (14)));
+            gDn[(size_t) i].setBounds (c.removeFromRight (sx (22)));
+            gUp[(size_t) i].setBounds (c.removeFromRight (sx (22)));
+            gEd[(size_t) i].setBounds (c.removeFromRight (sx (28)));
+            gByp[(size_t) i].setBounds (c.removeFromRight (sx (32)));
             gSlot[(size_t) i].setBounds (c);
         }
     }
@@ -1193,16 +1275,18 @@ void SessionUI::resized()
     }
 
     r.removeFromTop (sx (4));
-    auto trackVst = r.removeFromBottom (sx (48));
+    auto trackVst = r.removeFromBottom (sx (64));
     {
-        trackVstLbl.setBounds (trackVst.removeFromLeft (sx (88)).reduced (0, sx (12)));
+        trackVstLbl.setBounds (trackVst.removeFromLeft (sx (78)).reduced (0, sx (18)));
         const int slotW = trackVst.getWidth() / 4;
         for (int i = 0; i < 4; ++i)
         {
             auto c = trackVst.removeFromLeft (slotW).reduced (sx (2), sx (2));
-            tSlotLbl[(size_t) i].setBounds (c.removeFromTop (sx (12)));
-            tByp[(size_t) i].setBounds (c.removeFromRight (sx (36)));
-            tEd[(size_t) i].setBounds (c.removeFromRight (sx (32)));
+            tSlotLbl[(size_t) i].setBounds (c.removeFromTop (sx (14)));
+            tDn[(size_t) i].setBounds (c.removeFromRight (sx (22)));
+            tUp[(size_t) i].setBounds (c.removeFromRight (sx (22)));
+            tEd[(size_t) i].setBounds (c.removeFromRight (sx (28)));
+            tByp[(size_t) i].setBounds (c.removeFromRight (sx (32)));
             tSlot[(size_t) i].setBounds (c);
         }
     }
@@ -1482,11 +1566,12 @@ void SessionUI::fillPluginCombo (juce::ComboBox& box, PluginRack& rack, int slot
 }
 
 void SessionUI::bindPluginSlot (juce::ComboBox& box, juce::TextButton& byp, juce::TextButton& ed,
-                                std::function<PluginRack&()> rackFn, int slot)
+                                std::function<PluginRack&()> rackFn, int visualIndex)
 {
-    box.onChange = [this, &box, rackFn, slot]
+    box.onChange = [this, &box, rackFn, visualIndex]
     {
         auto& rack = rackFn();
+        const int slot = rack.orderAt (visualIndex);
         const int id = box.getSelectedId();
         if (id <= 1)
         {
@@ -1501,24 +1586,34 @@ void SessionUI::bindPluginSlot (juce::ComboBox& box, juce::TextButton& byp, juce
         if (err.isNotEmpty())
             juce::NativeMessageBox::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "VST3", err);
     };
-    byp.onClick = [rackFn, slot, &byp]
+    byp.onClick = [rackFn, visualIndex, &byp]
     {
-        rackFn().setBypass (slot, byp.getToggleState());
+        auto& rack = rackFn();
+        rack.setBypass (rack.orderAt (visualIndex), byp.getToggleState());
     };
-    ed.onClick = [rackFn, slot]
+    ed.onClick = [rackFn, visualIndex]
     {
-        rackFn().showEditor (slot);
+        auto& rack = rackFn();
+        rack.showEditor (rack.orderAt (visualIndex));
     };
 }
 
 void SessionUI::refreshPluginCombos()
 {
+    auto& gRack = proc.getGuitarRack();
+    auto& tRack = selectedTrackRack();
     for (int i = 0; i < 4; ++i)
     {
-        fillPluginCombo (gSlot[(size_t) i], proc.getGuitarRack(), i);
-        fillPluginCombo (tSlot[(size_t) i], selectedTrackRack(), i);
-        gByp[(size_t) i].setToggleState (proc.getGuitarRack().isBypassed (i), juce::dontSendNotification);
-        tByp[(size_t) i].setToggleState (selectedTrackRack().isBypassed (i), juce::dontSendNotification);
+        const int gid = gRack.orderAt (i);
+        const int tid = tRack.orderAt (i);
+        gSlotLbl[(size_t) i].setText (juce::String (i + 1) + "  " + PluginRack::slotName (gid),
+                                      juce::dontSendNotification);
+        tSlotLbl[(size_t) i].setText (juce::String (i + 1) + "  " + PluginRack::slotName (tid),
+                                      juce::dontSendNotification);
+        fillPluginCombo (gSlot[(size_t) i], gRack, gid);
+        fillPluginCombo (tSlot[(size_t) i], tRack, tid);
+        gByp[(size_t) i].setToggleState (gRack.isBypassed (gid), juce::dontSendNotification);
+        tByp[(size_t) i].setToggleState (tRack.isBypassed (tid), juce::dontSendNotification);
     }
 }
 

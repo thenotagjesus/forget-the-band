@@ -226,14 +226,11 @@ void SessionProcessor::startSession()
     fxChair.reset();
     analyzer.resetEngage();
     band.setEnabled (false);
-    waitingNotes.store (0, std::memory_order_relaxed);
     countingIn.store (0, std::memory_order_relaxed);
+    goBand.store (0, std::memory_order_relaxed);
+    countInRequest.store (0, std::memory_order_relaxed);
     sessionRunning.store (1, std::memory_order_relaxed);
-    // Do not wait for a YIN lock — silent/unpitched input used to stall forever.
-    if (countInEnabled.load (std::memory_order_relaxed) != 0)
-        countInRequest.store (1, std::memory_order_relaxed);
-    else
-        goBand.store (1, std::memory_order_relaxed);
+    waitingNotes.store (1, std::memory_order_relaxed);
 }
 
 void SessionProcessor::stopSession()
@@ -524,19 +521,25 @@ void SessionProcessor::processDuplex (const float* const* inChannels, int numIns
         gL[(size_t) i] = inMono[(size_t) i];
         gR[(size_t) i] = inMono[(size_t) i];
     }
-    guitarRack.process (PluginRack::PreAmp, gL.data(), gR.data(), n, midiScratch);
-    if (guitarRack.isVstAmpActive())
+    for (int p = 0; p < PluginRack::NumSlots; ++p)
     {
-        guitarRack.process (PluginRack::AmpReplace, gL.data(), gR.data(), n, midiScratch);
+        const int id = guitarRack.orderAt (p);
+        if (id == PluginRack::AmpReplace)
+        {
+            if (guitarRack.isVstAmpActive())
+                guitarRack.process (PluginRack::AmpReplace, gL.data(), gR.data(), n, midiScratch);
+            else if (ampBypass.load (std::memory_order_relaxed) == 0)
+            {
+                for (int i = 0; i < n; ++i)
+                    inMono[(size_t) i] = 0.5f * (gL[(size_t) i] + gR[(size_t) i]);
+                amp.process (inMono.data(), gL.data(), gR.data(), n);
+            }
+        }
+        else
+        {
+            guitarRack.process ((PluginRack::SlotId) id, gL.data(), gR.data(), n, midiScratch);
+        }
     }
-    else if (ampBypass.load (std::memory_order_relaxed) == 0)
-    {
-        for (int i = 0; i < n; ++i)
-            inMono[(size_t) i] = 0.5f * (gL[(size_t) i] + gR[(size_t) i]);
-        amp.process (inMono.data(), gL.data(), gR.data(), n);
-    }
-    guitarRack.process (PluginRack::Post,  gL.data(), gR.data(), n, midiScratch);
-    guitarRack.process (PluginRack::Slot4, gL.data(), gR.data(), n, midiScratch);
     fx.process (gL.data(), gR.data(), n, analyzer.getBpm());
 
     {

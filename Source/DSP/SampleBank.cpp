@@ -130,8 +130,13 @@ bool SampleBank::loadWavStream (Buf& dest, juce::InputStream* in)
 {
     if (in == nullptr)
         return false;
-    juce::WavAudioFormat wav;
-    std::unique_ptr<juce::AudioFormatReader> reader (wav.createReaderFor (in, true));
+    juce::AudioFormatManager fm;
+    fm.registerFormat (new juce::WavAudioFormat(), true);
+    fm.registerFormat (new juce::AiffAudioFormat(), false);
+#if JUCE_USE_FLAC
+    fm.registerFormat (new juce::FlacAudioFormat(), false);
+#endif
+    std::unique_ptr<juce::AudioFormatReader> reader (fm.createReaderFor (std::unique_ptr<juce::InputStream> (in)));
     if (reader == nullptr)
         return false;
 
@@ -165,12 +170,14 @@ void SampleBank::scanUserFx()
     int count = 0;
     auto dir = userFxDir();
     juce::Array<juce::File> files;
-    dir.findChildFiles (files, juce::File::findFiles, false, "*.wav");
+    dir.findChildFiles (files, juce::File::findFiles, false, "*");
     files.sort();
     for (auto& f : files)
     {
         if (count >= kMaxUser)
             break;
+        if (! f.hasFileExtension ("wav;aif;aiff;flac"))
+            continue;
         if (loadWavFile (user[(size_t) count], f))
             ++count;
     }

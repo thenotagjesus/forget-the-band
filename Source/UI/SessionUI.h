@@ -63,7 +63,7 @@ private:
     void applyScaleMask();
     void fillPluginCombo (juce::ComboBox& box, PluginRack& rack, int slot);
     void bindPluginSlot (juce::ComboBox& box, juce::TextButton& byp, juce::TextButton& ed,
-                         std::function<PluginRack&()> rackFn, int slot);
+                         std::function<PluginRack&()> rackFn, int visualIndex);
     void refreshPluginCombos();
     void refreshDawMixer();
     void doNewProject();
@@ -108,7 +108,7 @@ private:
     juce::TextButton loadFxBtn { "Load FX" };
     juce::TextButton viewArrange { "Arrange" }, viewMixer { "Mixer" };
     juce::ToggleButton ampBypass { "Amp Bypass" };
-    juce::TextButton scanBtn { "Scan VST3" };
+    juce::TextButton scanBtn { "Plugins" };
     juce::Label guitarVstLbl, trackVstLbl;
 
     MixerStrip guitarStrip { "Guitar", juce::Colour (SessionLookAndFeel::kGuitar) };
@@ -124,6 +124,7 @@ private:
 
     std::array<juce::ComboBox, 4> gSlot, tSlot;
     std::array<juce::TextButton, 4> gByp, gEd, tByp, tEd;
+    std::array<juce::TextButton, 4> gUp, gDn, tUp, tDn;
     std::array<juce::Label, 4> gSlotLbl, tSlotLbl;
 
     juce::Rectangle<int> headerBounds, transportBounds, followBounds, tunerBounds, inMeterBounds;

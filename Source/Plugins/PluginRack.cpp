@@ -2,7 +2,7 @@
 
 const char* PluginRack::slotName (int id)
 {
-    static const char* names[] = { "PreAmp", "Amp", "Post", "Slot 4" };
+    static const char* names[] = { "Pre", "Amp", "Post", "4" };
     if (id < 0 || id >= NumSlots) return "Slot";
     return names[id];
 }
@@ -10,6 +10,71 @@ const char* PluginRack::slotName (int id)
 PluginRack::PluginRack (PluginHost& h)
     : host (h)
 {
+    for (int i = 0; i < NumSlots; ++i)
+        order[(size_t) i].store (i, std::memory_order_relaxed);
+}
+
+int PluginRack::orderAt (int pos) const noexcept
+{
+    if (pos < 0 || pos >= NumSlots)
+        return 0;
+    return juce::jlimit (0, NumSlots - 1, order[(size_t) pos].load (std::memory_order_relaxed));
+}
+
+void PluginRack::swapOrder (int posA, int posB)
+{
+    posA = juce::jlimit (0, NumSlots - 1, posA);
+    posB = juce::jlimit (0, NumSlots - 1, posB);
+    if (posA == posB)
+        return;
+    const int a = order[(size_t) posA].load (std::memory_order_relaxed);
+    const int b = order[(size_t) posB].load (std::memory_order_relaxed);
+    order[(size_t) posA].store (b, std::memory_order_relaxed);
+    order[(size_t) posB].store (a, std::memory_order_relaxed);
+    if (persistSlots)
+        saveSlotState();
+}
+
+juce::String PluginRack::orderString() const
+{
+    juce::String s;
+    for (int i = 0; i < NumSlots; ++i)
+    {
+        if (i > 0)
+            s += ",";
+        s += juce::String (orderAt (i));
+    }
+    return s;
+}
+
+void PluginRack::applyOrderString (const juce::String& s)
+{
+    int vals[NumSlots] = { 0, 1, 2, 3 };
+    if (s.isNotEmpty())
+    {
+        auto tok = juce::StringArray::fromTokens (s, ", ", "");
+        tok.removeEmptyStrings();
+        bool used[NumSlots] = {};
+        bool ok = tok.size() == NumSlots;
+        for (int i = 0; ok && i < NumSlots; ++i)
+        {
+            const int v = tok[i].getIntValue();
+            if (v < 0 || v >= NumSlots || used[v])
+                ok = false;
+            else
+            {
+                used[v] = true;
+                vals[i] = v;
+            }
+        }
+        if (! ok)
+        {
+            for (int i = 0; i < NumSlots; ++i)
+                vals[i] = i;
+        }
+    }
+    for (int i = 0; i < NumSlots; ++i)
+        order[(size_t) i].store (vals[i], std::memory_order_relaxed);
 }
 
 PluginRack::~PluginRack()
@@ -256,10 +321,8 @@ void PluginRack::processChain (float* left, float* right, int numSamples,
 {
     if (left == nullptr || numSamples <= 0 || ! hasReadySlot())
         return;
-    process (PreAmp,     left, right, numSamples, midi);
-    process (AmpReplace, left, right, numSamples, midi);
-    process (Post,       left, right, numSamples, midi);
-    process (Slot4,      left, right, numSamples, midi);
+    for (int p = 0; p < NumSlots; ++p)
+        process ((SlotId) orderAt (p), left, right, numSamples, midi);
 }
 
 juce::String PluginRack::loadPlugin (int slotIndex, const juce::PluginDescription& desc)
@@ -387,6 +450,7 @@ void PluginRack::closeEditor (int slotIndex)
 
 void PluginRack::saveToXml (juce::XmlElement& xml) const
 {
+    xml.setAttribute ("order", orderString());
     for (int i = 0; i < NumSlots; ++i)
     {
         auto& slot = slots[(size_t) i];
@@ -412,6 +476,7 @@ void PluginRack::saveToXml (juce::XmlElement& xml) const
 
 void PluginRack::loadFromXml (const juce::XmlElement& xml)
 {
+    applyOrderString (xml.getStringAttribute ("order"));
     const auto types = host.knownList.getTypes();
     for (auto* child = xml.getFirstChildElement(); child != nullptr; child = child->getNextElement())
     {
@@ -449,6 +514,7 @@ void PluginRack::loadFromXml (const juce::XmlElement& xml)
 void PluginRack::saveSlotState()
 {
     juce::XmlElement xml ("Slots");
+    xml.setAttribute ("order", orderString());
     for (int i = 0; i < NumSlots; ++i)
     {
         auto* s = xml.createNewChildElement ("Slot");
@@ -468,6 +534,7 @@ void PluginRack::restoreSlotState()
     if (xml == nullptr)
         return;
 
+    applyOrderString (xml->getStringAttribute ("order"));
     const auto types = host.knownList.getTypes();
     for (auto* child = xml->getFirstChildElement(); child != nullptr; child = child->getNextElement())
     {
