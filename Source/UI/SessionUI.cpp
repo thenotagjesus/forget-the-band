@@ -552,7 +552,7 @@ void SessionUI::wireControls()
             "Load FX samples", dir, "*.wav;*.aif;*.aiff;*.flac", true);
         chooser->launchAsync (juce::FileBrowserComponent::openMode
                               | juce::FileBrowserComponent::canSelectFiles
-                              | juce::FileBrowserComponent::canSelectMultipleFiles,
+                              | juce::FileBrowserComponent::canSelectMultipleItems,
                               [this, chooser, dir] (const juce::FileChooser& c)
         {
             auto files = c.getResults();
