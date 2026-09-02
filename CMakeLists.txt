@@ -33,6 +33,8 @@ juce_add_gui_app(Session
     PRODUCT_NAME "ForgetTheBand"
     BUNDLE_ID com.centrophy.forgettheband
     VERSION ${PROJECT_VERSION}
+    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/Assets/icon.png"
+    ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/Assets/icon.png"
     MICROPHONE_PERMISSION_ENABLED TRUE
     MICROPHONE_PERMISSION_TEXT "Forget The Band needs audio input for your guitar."
     NEEDS_WEB_BROWSER FALSE
