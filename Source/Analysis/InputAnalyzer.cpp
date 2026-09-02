@@ -468,7 +468,8 @@ void InputAnalyzer::analyseWindow (const float* x, int n) noexcept
     }
     playerEnergy.store (player, std::memory_order_relaxed);
     // Require a pitched note, not broadband hiss (S/PDIF open / USB hash).
-    if (rmsSmooth > 0.018f && conf > 0.45f && hz >= kMinHz && hz <= kMaxHz)
+    if ((rmsSmooth > 0.008f && conf > 0.28f && hz >= kMinHz && hz <= kMaxHz)
+        || (rmsSmooth > 0.025f && activitySmooth > 0.18f))
         engaged.store (1, std::memory_order_relaxed);
 
     if (lockIntensity.load (std::memory_order_relaxed) == 0)

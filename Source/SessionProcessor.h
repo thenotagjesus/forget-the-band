@@ -136,6 +136,7 @@ private:
     std::atomic<int> ampBypass { 0 };
     std::atomic<int> countInEnabled { 1 };
     std::atomic<int> countInRequest { 0 };
+    std::atomic<int> goBand { 0 };
     std::atomic<int> countingIn { 0 };
     std::atomic<int> countInBeatAtom { 0 };
     std::atomic<int> waitingNotes { 0 };

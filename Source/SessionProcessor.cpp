@@ -214,10 +214,14 @@ void SessionProcessor::startSession()
     band.reset();
     analyzer.resetEngage();
     band.setEnabled (false);
-    countInRequest.store (0, std::memory_order_relaxed);
+    waitingNotes.store (0, std::memory_order_relaxed);
     countingIn.store (0, std::memory_order_relaxed);
-    waitingNotes.store (1, std::memory_order_relaxed);
     sessionRunning.store (1, std::memory_order_relaxed);
+    // Do not wait for a YIN lock — silent/unpitched input used to stall forever.
+    if (countInEnabled.load (std::memory_order_relaxed) != 0)
+        countInRequest.store (1, std::memory_order_relaxed);
+    else
+        goBand.store (1, std::memory_order_relaxed);
 }
 
 void SessionProcessor::stopSession()
@@ -375,6 +379,18 @@ void SessionProcessor::processDuplex (const float* const* inChannels, int numIns
         countInActive = false;
         countingIn.store (0, std::memory_order_relaxed);
         waitingNotes.store (0, std::memory_order_relaxed);
+        goBand.store (0, std::memory_order_relaxed);
+        countInRequest.store (0, std::memory_order_relaxed);
+    }
+    else if (goBand.exchange (0, std::memory_order_relaxed) != 0)
+    {
+        waitingNotes.store (0, std::memory_order_relaxed);
+        finishCountIn();
+    }
+    else if (countInRequest.exchange (0, std::memory_order_relaxed) != 0)
+    {
+        waitingNotes.store (0, std::memory_order_relaxed);
+        beginCountIn();
     }
     else if (waitingNotes.load (std::memory_order_relaxed) != 0 && analyzer.hasEngaged())
     {
@@ -383,10 +399,6 @@ void SessionProcessor::processDuplex (const float* const* inChannels, int numIns
             beginCountIn();
         else
             finishCountIn();
-    }
-    else if (countInRequest.exchange (0, std::memory_order_relaxed) != 0)
-    {
-        beginCountIn();
     }
 
     // Guitar from INPUT channels only. Pick the loudest non-null input channel.
