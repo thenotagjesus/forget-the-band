@@ -1,5 +1,6 @@
 #include "Daw/Project.h"
 #include <algorithm>
+#include <cstring>
 #include "SessionSettings.h"
 
 Project::Project (PluginHost& host)
@@ -18,6 +19,7 @@ void Project::resetNew (PluginHost& host, const juce::String& n)
     cycle = false;
     nextClipId = 1;
     undo.clear();
+    notes.clear();
     for (int i = 0; i < Daw::kNumTracks; ++i)
     {
         auto& t = tracks[(size_t) i];
@@ -211,6 +213,19 @@ juce::String Project::saveAs (const juce::File& dest)
             cx->setAttribute ("name", c->name);
         }
     }
+    auto* nx = xml.createNewChildElement ("Notes");
+    for (const auto& n : notes)
+    {
+        auto* e = nx->createNewChildElement ("Note");
+        e->setAttribute ("start", n.startQuarter);
+        e->setAttribute ("dur", n.durationQuarter);
+        e->setAttribute ("midi", n.midi);
+        e->setAttribute ("name", juce::String (n.name));
+        e->setAttribute ("cents", (double) n.cents);
+        e->setAttribute ("rms", (double) n.rms);
+        e->setAttribute ("vel", (double) n.velocity);
+        e->setAttribute ("conf", (double) n.confidence);
+    }
     if (! xml.writeTo (folder.getChildFile ("project.xml")))
         return "Failed to write project.xml";
     return {};
@@ -232,6 +247,7 @@ juce::String Project::load (const juce::File& dest, PluginHost& host)
     cycle = xml->getIntAttribute ("cycle", 0) != 0;
     nextClipId = xml->getIntAttribute ("nextClipId", 1);
     undo.clear();
+    notes.clear();
     for (int i = 0; i < Daw::kNumTracks; ++i)
     {
         tracks[(size_t) i].clips.clear();
@@ -271,6 +287,32 @@ juce::String Project::load (const juce::File& dest, PluginHost& host)
             c->file = rel.isNotEmpty() ? folder.getChildFile (rel) : juce::File();
             loadClipAudio (*c);
             t.clips.push_back (std::move (c));
+        }
+    }
+    if (auto* nx = xml->getChildByName ("Notes"))
+    {
+        for (auto* e = nx->getFirstChildElement(); e != nullptr; e = e->getNextElement())
+        {
+            if (e->getTagName() != "Note")
+                continue;
+            Daw::NoteEvent n;
+            n.startQuarter = e->getDoubleAttribute ("start", 0.0);
+            n.durationQuarter = e->getDoubleAttribute ("dur", 0.25);
+            n.midi = e->getIntAttribute ("midi", -1);
+            n.cents = (float) e->getDoubleAttribute ("cents", 0.0);
+            n.rms = (float) e->getDoubleAttribute ("rms", 0.0);
+            n.velocity = (float) e->getDoubleAttribute ("vel", 0.8);
+            n.confidence = (float) e->getDoubleAttribute ("conf", 0.0);
+            const auto nm = e->getStringAttribute ("name");
+            if (nm.isNotEmpty())
+            {
+                const auto utf = nm.toRawUTF8();
+                std::strncpy (n.name, utf, sizeof (n.name) - 1);
+                n.name[sizeof (n.name) - 1] = 0;
+            }
+            else
+                n.setNameFromMidi (n.midi);
+            notes.push_back (n);
         }
     }
     return {};

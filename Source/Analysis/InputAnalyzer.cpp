@@ -21,7 +21,8 @@ juce::String InputAnalyzer::noteNameFromMidi (int note)
 {
     if (note < 0)
         return "--";
-    return juce::String (pitchClassName (note % 12)) + juce::String (note / 12 - 1);
+    static const char* spell[] = { "C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B" };
+    return juce::String (spell[((note % 12) + 12) % 12]) + juce::String (note / 12 - 1);
 }
 
 float InputAnalyzer::getCents() const noexcept
@@ -69,6 +70,26 @@ void InputAnalyzer::prepare (double sr)
     pendingKey = keyPc.load();
     keyStableHops = bpmStableHops = 0;
     hopsPerBar = juce::jmax (8, (int) std::lround ((60.0 / (double) bpmSmoothed) * 4.0 * sampleRate / (double) hop));
+
+    midiRing.assign (512, MidiPulse{});
+    midiFifo.setTotalSize (512);
+    midiFifo.reset();
+    heldNote = -1;
+    hangHops = 0;
+    stableNoteHops = 0;
+    pendingMidi = -1;
+    liveHeld = -1;
+    liveWrite.store (0);
+    liveCount.store (0);
+    for (auto& n : liveNotes) n = {};
+    for (auto& c : chromaAtom) c.store (0.0f);
+    onsetFlag.store (0);
+    playerChordDeg.store (0);
+    playerChordRoot.store (keyPc.load());
+    {
+        const juce::ScopedLock sl (historyLock);
+        history.clear();
+    }
 
     startThread (juce::Thread::Priority::low);
 }
@@ -287,10 +308,11 @@ void InputAnalyzer::updateKey (float hz, float conf, float rms) noexcept
         const float midi = 69.0f + 12.0f * std::log2 (hz / 440.0f);
         const int pc = ((int) std::lround (midi) % 12 + 12) % 12;
         chroma[(size_t) pc] += conf * (0.4f + 2.0f * rms);
-        // Power-chord helper: also credit the fifth below as a possible root.
-        const int asRootOfFifth = (pc + 5) % 12; // heard a fifth → also credit its root
+        const int asRootOfFifth = (pc + 5) % 12;
         chroma[(size_t) asRootOfFifth] += 0.25f * conf * rms;
     }
+    for (int i = 0; i < 12; ++i)
+        chromaAtom[(size_t) i].store (chroma[(size_t) i], std::memory_order_relaxed);
 
     int best = 0;
     float bestV = chroma[0];
@@ -342,6 +364,7 @@ void InputAnalyzer::updateTempo (float rms, int n) noexcept
 
     if (onset)
     {
+        onsetFlag.store (1, std::memory_order_relaxed);
         const float ioi = (float) (samplesSinceOnset / sampleRate);
         samplesSinceOnset = 0.0;
         if (ioi >= 0.22f && ioi <= 1.05f) // ~57–273 quarter-note BPM before folding
@@ -422,8 +445,10 @@ void InputAnalyzer::analyseWindow (const float* x, int n) noexcept
         }
     }
 
+    emitNote (hz, conf, rmsSmooth);
     updateKey (hz, conf, rmsSmooth);
     updateTempo (rmsSmooth, n);
+    updatePlayerChord();
 
     const float onsetBusy = juce::jlimit (0.0f, 1.0f, (float) ioiCount / 8.0f);
     const float loud = juce::jlimit (0.0f, 1.0f, rmsSmooth * 8.0f);
@@ -473,4 +498,288 @@ void InputAnalyzer::analyseWindow (const float* x, int n) noexcept
 
     hopsElapsed += 1.0;
     maybeLock();
+}
+
+void InputAnalyzer::resetEngage() noexcept
+{
+    engaged.store (0, std::memory_order_relaxed);
+}
+
+void InputAnalyzer::copyChroma (float out[12]) const noexcept
+{
+    for (int i = 0; i < 12; ++i)
+        out[i] = chromaAtom[(size_t) i].load (std::memory_order_relaxed);
+}
+
+juce::String InputAnalyzer::getPlayerChordName() const
+{
+    static const char* pcN[] = { "C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B" };
+    static const char* degN[] = { "", "m", "", "m", "m", "", "", "m" };
+    const int root = playerChordRoot.load (std::memory_order_relaxed);
+    const int deg = playerChordDeg.load (std::memory_order_relaxed);
+    juce::String s (pcN[((root % 12) + 12) % 12]);
+    // minor-ish degrees: vi, ii, bIII
+    if (deg == 3 || deg == 7 || deg == 4)
+        s << "m";
+    return s;
+}
+
+double InputAnalyzer::currentQuarter() const noexcept
+{
+    const double tq = transportQ.load (std::memory_order_relaxed);
+    if (tq > 0.0)
+        return tq;
+    const double sec = hopsElapsed * (double) hop / juce::jmax (1.0, sampleRate);
+    const float b = juce::jmax (40.0f, bpmSmoothed);
+    return sec * ((double) b / 60.0);
+}
+
+void InputAnalyzer::pushMidi (juce::uint8 status, juce::uint8 note, juce::uint8 vel) noexcept
+{
+    if (midiFifo.getFreeSpace() < 1)
+        return;
+    int s1 = 0, n1 = 0, s2 = 0, n2 = 0;
+    midiFifo.prepareToWrite (1, s1, n1, s2, n2);
+    if (n1 > 0)
+    {
+        midiRing[(size_t) s1].status = status;
+        midiRing[(size_t) s1].note = note;
+        midiRing[(size_t) s1].vel = vel;
+        midiFifo.finishedWrite (1);
+    }
+}
+
+void InputAnalyzer::drainMidi (juce::MidiBuffer& dest, int numSamples) noexcept
+{
+    juce::ignoreUnused (numSamples);
+    const int ready = midiFifo.getNumReady();
+    if (ready <= 0)
+        return;
+    int s1 = 0, n1 = 0, s2 = 0, n2 = 0;
+    midiFifo.prepareToRead (ready, s1, n1, s2, n2);
+    auto take = [&] (int start, int count)
+    {
+        for (int i = 0; i < count; ++i)
+        {
+            const auto& e = midiRing[(size_t) (start + i)];
+            if (e.status == 0x90)
+                dest.addEvent (juce::MidiMessage::noteOn (1, (int) e.note, e.vel), 0);
+            else if (e.status == 0x80)
+                dest.addEvent (juce::MidiMessage::noteOff (1, (int) e.note), 0);
+        }
+    };
+    take (s1, n1);
+    take (s2, n2);
+    midiFifo.finishedRead (n1 + n2);
+}
+
+void InputAnalyzer::closeHeldNote (double endQ) noexcept
+{
+    if (heldNote < 0)
+        return;
+    openEvent.durationQuarter = juce::jmax (0.06, endQ - openEvent.startQuarter);
+    {
+        const juce::ScopedLock sl (historyLock);
+        history.push_back (openEvent);
+        if (history.size() > 4096)
+            history.erase (history.begin(), history.begin() + (int) (history.size() - 4096));
+    }
+    if (liveHeld >= 0 && liveHeld < kLiveNotes)
+    {
+        liveNotes[(size_t) liveHeld].durBeat = (float) (openEvent.durationQuarter);
+        liveNotes[(size_t) liveHeld].active = 0;
+    }
+    liveHeld = -1;
+    heldNote = -1;
+}
+
+void InputAnalyzer::emitNote (float hz, float conf, float rms) noexcept
+{
+    // Port of PitchDetector::emitMidi onto the analysis worker (not the audio thread).
+    const float gate = 0.42f;
+    const bool voiced = (conf > gate && rms > 0.01f && hz >= 70.0f && hz <= 1200.0f);
+    const int note = voiced ? juce::jlimit (0, 127, (int) std::lround (69.0f + 12.0f * std::log2 (hz / 440.0f)))
+                            : -1;
+    const double q = currentQuarter();
+
+    if (note >= 0)
+    {
+        if (note == pendingMidi)
+            ++stableNoteHops;
+        else
+        {
+            pendingMidi = note;
+            stableNoteHops = 0;
+        }
+
+        const bool stable = (note == heldNote) || (stableNoteHops >= 2);
+        hangHops = juce::jmax (4, (int) std::lround (0.12 * sampleRate / (double) juce::jmax (1, hop)));
+
+        if (stable && note != heldNote)
+        {
+            if (heldNote >= 0)
+            {
+                pushMidi (0x80, (juce::uint8) heldNote, 0);
+                closeHeldNote (q);
+            }
+            const int vel = juce::jlimit (1, 127, (int) (rms * conf * 180.0f));
+            pushMidi (0x90, (juce::uint8) note, (juce::uint8) vel);
+            heldNote = note;
+            openEvent = {};
+            openEvent.startQuarter = q;
+            openEvent.midi = note;
+            openEvent.cents = getCents();
+            openEvent.rms = rms;
+            openEvent.velocity = (float) vel / 127.0f;
+            openEvent.confidence = conf;
+            openEvent.setNameFromMidi (note);
+
+            const int idx = liveWrite.load (std::memory_order_relaxed) % kLiveNotes;
+            liveNotes[(size_t) idx].startBeat = (float) q;
+            liveNotes[(size_t) idx].durBeat = 0.25f;
+            liveNotes[(size_t) idx].midi = note;
+            liveNotes[(size_t) idx].cents = openEvent.cents;
+            liveNotes[(size_t) idx].vel = openEvent.velocity;
+            liveNotes[(size_t) idx].active = 1;
+            liveHeld = idx;
+            liveWrite.store (idx + 1, std::memory_order_relaxed);
+            liveCount.store (juce::jmin (kLiveNotes, liveCount.load() + 1), std::memory_order_relaxed);
+        }
+        else if (note == heldNote && liveHeld >= 0)
+        {
+            liveNotes[(size_t) liveHeld].durBeat = (float) juce::jmax (0.06, q - openEvent.startQuarter);
+            liveNotes[(size_t) liveHeld].cents = getCents();
+        }
+    }
+    else if (heldNote >= 0)
+    {
+        --hangHops;
+        if (hangHops <= 0 || rmsSmooth < 0.005f)
+        {
+            pushMidi (0x80, (juce::uint8) heldNote, 0);
+            closeHeldNote (q);
+            pendingMidi = -1;
+            stableNoteHops = 0;
+        }
+    }
+}
+
+void InputAnalyzer::updatePlayerChord() noexcept
+{
+    // Score chroma against diatonic / modal triads relative to the sounding key.
+    const int key = keyPc.load (std::memory_order_relaxed);
+    struct Deg { int deg; int st; bool minor; };
+    const Deg table[] = {
+        { 0, 0,  false }, // I
+        { 1, 5,  false }, // IV
+        { 2, 7,  false }, // V
+        { 3, 9,  true  }, // vi
+        { 4, 3,  true  }, // bIII
+        { 5, 8,  false }, // bVI
+        { 6, 10, false }, // bVII
+        { 7, 2,  true  }  // ii
+    };
+    int best = 0;
+    float bestV = -1.0f;
+    for (const auto& d : table)
+    {
+        const int root = (key + d.st) % 12;
+        const int third = (root + (d.minor ? 3 : 4)) % 12;
+        const int fifth = (root + 7) % 12;
+        const int seventh = (root + 10) % 12;
+        const float v = chroma[(size_t) root] * 1.45f
+                      + chroma[(size_t) third] * 1.05f
+                      + chroma[(size_t) fifth] * 0.85f
+                      + chroma[(size_t) seventh] * 0.35f;
+        if (v > bestV)
+        {
+            bestV = v;
+            best = d.deg;
+        }
+    }
+
+    if (best == pendingChord)
+        ++chordStableHops;
+    else
+    {
+        pendingChord = best;
+        chordStableHops = 0;
+    }
+
+    // Hysteresis: don't panic-modulate. Hold until a few hops agree, and require energy.
+    const bool enough = bestV > 0.08f && rmsSmooth > 0.01f;
+    if (enough && chordStableHops >= 6)
+    {
+        playerChordDeg.store (best, std::memory_order_relaxed);
+        const int st = table[best].st;
+        playerChordRoot.store ((key + st) % 12, std::memory_order_relaxed);
+    }
+}
+
+void InputAnalyzer::copyLiveNotes (Daw::LiveNote* dest, int maxN, int& written) const noexcept
+{
+    written = 0;
+    if (dest == nullptr || maxN <= 0)
+        return;
+    const int n = juce::jmin (maxN, kLiveNotes);
+    const int w = liveWrite.load (std::memory_order_relaxed);
+    for (int i = 0; i < n; ++i)
+    {
+        const int idx = ((w - 1 - i) % kLiveNotes + kLiveNotes) % kLiveNotes;
+        dest[i] = liveNotes[(size_t) idx];
+        ++written;
+    }
+}
+
+std::vector<Daw::NoteEvent> InputAnalyzer::copyHistory() const
+{
+    const juce::ScopedLock sl (historyLock);
+    return history;
+}
+
+void InputAnalyzer::replaceHistory (std::vector<Daw::NoteEvent> notes)
+{
+    const juce::ScopedLock sl (historyLock);
+    history = std::move (notes);
+}
+
+void InputAnalyzer::clearTranscription()
+{
+    const juce::ScopedLock sl (historyLock);
+    history.clear();
+    heldNote = -1;
+    liveHeld = -1;
+    liveWrite.store (0);
+    liveCount.store (0);
+    for (auto& n : liveNotes) n = {};
+}
+
+juce::String InputAnalyzer::exportMidi (const juce::File& dest) const
+{
+    auto notes = copyHistory();
+    juce::MidiMessageSequence seq;
+    const float b = juce::jmax (40.0f, bpm.load (std::memory_order_relaxed));
+    const double ticks = 960.0;
+    for (const auto& n : notes)
+    {
+        if (n.midi < 0)
+            continue;
+        const double t0 = n.startQuarter * ticks;
+        const double t1 = (n.startQuarter + juce::jmax (0.06, n.durationQuarter)) * ticks;
+        const int vel = juce::jlimit (1, 127, (int) std::lround (n.velocity * 127.0f));
+        seq.addEvent (juce::MidiMessage::noteOn (1, n.midi, (juce::uint8) vel), t0);
+        seq.addEvent (juce::MidiMessage::noteOff (1, n.midi), t1);
+    }
+    seq.updateMatchedPairs();
+    juce::MidiFile mf;
+    mf.setTicksPerQuarterNote (960);
+    mf.addTrack (seq);
+    dest.getParentDirectory().createDirectory();
+    auto out = dest.createOutputStream();
+    if (out == nullptr)
+        return "Could not create MIDI file";
+    if (! mf.writeTo (*out, 1))
+        return "Failed to write MIDI";
+    juce::ignoreUnused (b);
+    return {};
 }

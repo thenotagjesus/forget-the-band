@@ -40,6 +40,7 @@ public:
     int nextClipId = 1;
     std::array<Track, Daw::kNumTracks> tracks;
     std::vector<Daw::UndoItem> undo;
+    std::vector<Daw::NoteEvent> notes;
 
     Track& track (int i) { return tracks[(size_t) juce::jlimit (0, Daw::kNumTracks - 1, i)]; }
     const Track& track (int i) const { return tracks[(size_t) juce::jlimit (0, Daw::kNumTracks - 1, i)]; }

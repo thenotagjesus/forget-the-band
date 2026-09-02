@@ -445,6 +445,23 @@ void SessionProcessor::processDuplex (const float* const* inChannels, int numIns
 
     analyzer.pushSamples (inMono.data(), n);
 
+    midiScratch.clear();
+    analyzer.drainMidi (midiScratch, n);
+
+    {
+        const float bpmQ = juce::jmax (40.0f, analyzer.getBpm());
+        const double sr = juce::jmax (1.0, sampleRate);
+        const double spq = (60.0 / (double) bpmQ) * sr;
+        double q = (double) daw.getPosition() / juce::jmax (1.0, spq);
+        if (sessionRunning.load (std::memory_order_relaxed) != 0 && q <= 0.0)
+        {
+            const int bar = band.getAbsBarIndex();
+            const float frac = band.getBeatFraction();
+            q = (double) bar * 4.0 + (double) frac * 4.0;
+        }
+        analyzer.setTransportQuarter (q);
+    }
+
     const float gAmt = gateAmt.load (std::memory_order_relaxed);
     const bool useGate = gAmt > 0.02f;
     if (useGate)
@@ -481,7 +498,6 @@ void SessionProcessor::processDuplex (const float* const* inChannels, int numIns
         gL[(size_t) i] = inMono[(size_t) i];
         gR[(size_t) i] = inMono[(size_t) i];
     }
-    midiScratch.clear();
     guitarRack.process (PluginRack::PreAmp, gL.data(), gR.data(), n, midiScratch);
     if (guitarRack.isVstAmpActive())
     {

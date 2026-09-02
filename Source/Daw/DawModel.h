@@ -77,4 +77,45 @@ namespace Daw
         int64_t startA = 0, startB = 0;
         std::unique_ptr<Clip> snapshot;
     };
+
+    /** Monophonic guitar transcription event. Times are quarter-notes from session/project zero. */
+    struct NoteEvent
+    {
+        double startQuarter = 0.0;
+        double durationQuarter = 0.0;
+        int midi = -1;
+        char name[8] {};      // "Eb3"
+        float cents = 0.0f;
+        float rms = 0.0f;
+        float velocity = 0.0f;
+        float confidence = 0.0f;
+
+        void setNameFromMidi (int note)
+        {
+            static const char* spell[] = { "C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B" };
+            name[0] = 0;
+            if (note < 0 || note > 127)
+            {
+                name[0] = '-'; name[1] = '-'; name[2] = 0;
+                return;
+            }
+            const char* pc = spell[note % 12];
+            const int oct = note / 12 - 1;
+            int i = 0;
+            while (pc[i] != 0 && i < 4) { name[i] = pc[i]; ++i; }
+            if (oct < 0) { name[i++] = '-'; name[i++] = (char) ('0' + (-oct)); }
+            else         { name[i++] = (char) ('0' + oct); }
+            name[i] = 0;
+        }
+    };
+
+    struct LiveNote
+    {
+        float startBeat = 0.0f;
+        float durBeat = 0.0f;
+        int midi = -1;
+        float cents = 0.0f;
+        float vel = 0.0f;
+        int active = 0;
+    };
 }

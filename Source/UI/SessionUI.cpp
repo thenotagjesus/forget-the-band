@@ -1,5 +1,6 @@
 #include "UI/SessionUI.h"
 #include "SessionSettings.h"
+#include <cmath>
 
 SessionUI::MixerStrip::MixerStrip (const juce::String& name, juce::Colour acc)
     : accent (acc)
@@ -298,8 +299,13 @@ SessionUI::SessionUI (SessionProcessor& processor, juce::AudioDeviceManager& dev
     addAndMakeVisible (calHard);
     chordName.setText ("—", juce::dontSendNotification);
     nextChord.setText ("", juce::dontSendNotification);
+    playerNote.setText ("you  --", juce::dontSendNotification);
+    noteLaneLbl.setText ("Notes", juce::dontSendNotification);
     addAndMakeVisible (chordName);
     addAndMakeVisible (nextChord);
+    addAndMakeVisible (playerNote);
+    addAndMakeVisible (noteLaneLbl);
+    addAndMakeVisible (midiBtn);
 
     static const char* gNamesFix[] = { "PreAmp", "Amp", "Post", "Slot 4" };
     for (int i = 0; i < 4; ++i)
@@ -471,22 +477,12 @@ void SessionUI::wireControls()
     saveBtn.onClick   = [this] { doSaveProject(); };
     bounceBtn.onClick = [this] { doBounce(); };
     undoBtn.onClick   = [this] { proc.getDaw().getProject().undoLast(); };
+    midiBtn.onClick   = [this] { exportPlayerMidi(); };
     viewArrange.onClick = [this] { mixerFront = false; resized(); };
     viewMixer.onClick   = [this] { mixerFront = true;  resized(); };
     ampBypass.onClick = [this]
     {
         proc.setAmpBypass (ampBypass.getToggleState());
-    proc.getBand().setForm ((FollowerBand::Form) juce::jmax (0, formBox.getSelectedId() - 1));
-    proc.getBand().setScale ((FollowerBand::Scale) juce::jmax (0, scaleBox.getSelectedId() - 1));
-    proc.getBand().setFeel ((FollowerBand::Feel) juce::jmax (0, feelBox.getSelectedId() - 1));
-    proc.getBand().setPhraseBars (phraseBox.getSelectedId() == 1 ? 4 : (phraseBox.getSelectedId() == 3 ? 16 : 8));
-    proc.getFx().setDivision ((GuitarFx::Division) juce::jmax (0, delayDivBox.getSelectedId() - 1));
-    proc.getAnalyzer().setLockTempo (lockTempo.getToggleState());
-    proc.getAnalyzer().setLockIntensity (lockIntensity.getToggleState());
-    proc.setGrooveFloor (grooveFloor.getToggleState());
-    proc.setFadeOnSilence (fadeSilence.getToggleState());
-    proc.getAnalyzer().setEnergyDrift (energyDrift.getToggleState());
-    applyScaleMask();
         markDirty();
     };
     scanBtn.onClick = [this]
@@ -827,6 +823,8 @@ void SessionUI::applyFonts()
     trackVstLbl.setFont (uiFont (12.0f));
     projectLbl.setFont (uiFont (13.0f, true));
     chordName.setFont (uiFont (26.0f, true));
+    playerNote.setFont (uiFont (16.0f, true));
+    noteLaneLbl.setFont (uiFont (11.0f));
     nextChord.setFont (uiFont (14.0f));
 }
 
@@ -901,6 +899,7 @@ void SessionUI::paint (juce::Graphics& g)
     drawEnergy (g, playerMeterBounds, proc.getPlayerEnergy(), juce::Colour (SessionLookAndFeel::kGuitar), "You");
     drawEnergy (g, bandMeterBounds, proc.getBandEnergy(), juce::Colour (SessionLookAndFeel::kAccent), "Band");
     drawNeck (g, neckBounds);
+    drawNoteLane (g, noteLaneBounds);
 
     drawMeter (g, inMeterBounds, proc.getInputPeak(), juce::Colour (SessionLookAndFeel::kGuitar));
     g.setFont (uiFont (11.0f));
@@ -1014,15 +1013,21 @@ void SessionUI::resized()
     }
 
     r.removeFromTop (sx (6));
-    hudBounds = r.removeFromTop (sx (72));
+    hudBounds = r.removeFromTop (sx (108));
     {
         auto h = hudBounds;
-        chordName.setBounds (h.removeFromLeft (sx (130)).reduced (sx (4), sx (8)));
-        nextChord.setBounds (h.removeFromLeft (sx (130)).reduced (sx (4), sx (16)));
-        energyLbl.setBounds (h.removeFromLeft (sx (70)).reduced (0, sx (22)));
-        playerMeterBounds = h.removeFromLeft (sx (120)).reduced (sx (2), sx (18));
-        bandMeterBounds = h.removeFromLeft (sx (120)).reduced (sx (2), sx (18));
-        neckBounds = h.reduced (sx (4), sx (6));
+        auto top = h.removeFromTop (sx (56));
+        chordName.setBounds (top.removeFromLeft (sx (130)).reduced (sx (4), sx (8)));
+        nextChord.setBounds (top.removeFromLeft (sx (130)).reduced (sx (4), sx (16)));
+        playerNote.setBounds (top.removeFromLeft (sx (90)).reduced (sx (4), sx (16)));
+        energyLbl.setBounds (top.removeFromLeft (sx (70)).reduced (0, sx (16)));
+        playerMeterBounds = top.removeFromLeft (sx (120)).reduced (sx (2), sx (12));
+        bandMeterBounds = top.removeFromLeft (sx (120)).reduced (sx (2), sx (12));
+        midiBtn.setBounds (top.removeFromRight (sx (56)).reduced (sx (4), sx (10)));
+        neckBounds = top.reduced (sx (4), sx (6));
+        auto lane = h;
+        noteLaneLbl.setBounds (lane.removeFromLeft (sx (52)).reduced (sx (2), sx (8)));
+        noteLaneBounds = lane.reduced (sx (4), sx (4));
     }
 
     r.removeFromTop (sx (6));
@@ -1199,6 +1204,18 @@ void SessionUI::timerCallback()
     if (proc.isWaitingForNotes())
         ch = "Ready  —  play to enter";
     chordName.setText (ch, juce::dontSendNotification);
+    {
+        const int n = an.getMidiNote();
+        juce::String pn = "you  " + InputAnalyzer::noteNameFromMidi (n);
+        if (n >= 0)
+        {
+            const int c = (int) std::lround (an.getCents());
+            if (c != 0)
+                pn << (c > 0 ? " +" : " ") << c;
+        }
+        playerNote.setText (pn, juce::dontSendNotification);
+        playerNote.setColour (juce::Label::textColourId, juce::Colour (SessionLookAndFeel::kGuitar));
+    }
     if (band.isChangeComing())
         nextChord.setText ("next  " + band.nextChordName() + "  " + FollowerBand::degreeName (band.getNextDegree()),
                            juce::dontSendNotification);
@@ -1229,6 +1246,96 @@ void SessionUI::timerCallback()
     }
 
     repaint();
+}
+
+void SessionUI::drawNoteLane (juce::Graphics& g, juce::Rectangle<int> r) const
+{
+    if (r.isEmpty())
+        return;
+    g.setColour (juce::Colour (SessionLookAndFeel::kPanel2));
+    g.fillRoundedRectangle (r.toFloat(), 6.0f);
+    g.setColour (juce::Colour (SessionLookAndFeel::kLine));
+    g.drawRoundedRectangle (r.toFloat(), 6.0f, 1.0f);
+
+    auto& an = proc.getAnalyzer();
+    auto& band = proc.getBand();
+    const float bpm = juce::jmax (40.0f, an.getBpm());
+    const double sr = juce::jmax (1.0, proc.getDaw().getSampleRate());
+    double nowQ = (double) proc.getDaw().getPosition() / ((60.0 / (double) bpm) * sr);
+    if (nowQ <= 0.01)
+        nowQ = (double) band.getAbsBarIndex() * 4.0 + (double) band.getBeatFraction() * 4.0;
+
+    const double windowQ = 8.0; // two bars
+    const double leftQ = nowQ - windowQ * 0.75;
+    const float w = (float) r.getWidth();
+    auto xAt = [&] (double q) -> float
+    {
+        return (float) r.getX() + (float) ((q - leftQ) / windowQ) * w;
+    };
+
+    // Bar / beat grid aligned to the playhead.
+    for (int b = (int) std::floor (leftQ); b <= (int) std::ceil (leftQ + windowQ); ++b)
+    {
+        const float x = xAt ((double) b);
+        if (x < (float) r.getX() || x > (float) r.getRight())
+            continue;
+        const bool bar = (b % 4) == 0;
+        g.setColour (juce::Colour (bar ? SessionLookAndFeel::kAccent : SessionLookAndFeel::kLine)
+                         .withAlpha (bar ? 0.45f : 0.25f));
+        g.fillRect (x, (float) r.getY() + 2.0f, bar ? 2.0f : 1.0f, (float) r.getHeight() - 4.0f);
+        if (bar)
+        {
+            g.setFont (uiFont (10.0f));
+            g.setColour (juce::Colour (SessionLookAndFeel::kMuted));
+            g.drawText (juce::String (b / 4 + 1), juce::Rectangle<float> (x + 3.0f, (float) r.getY() + 1.0f, 28.0f, 12.0f),
+                        juce::Justification::centredLeft, false);
+        }
+    }
+
+    const float playX = xAt (nowQ);
+    g.setColour (juce::Colour (SessionLookAndFeel::kGuitar));
+    g.fillRect (playX, (float) r.getY(), 2.0f, (float) r.getHeight());
+
+    Daw::LiveNote live[InputAnalyzer::kLiveNotes];
+    int written = 0;
+    an.copyLiveNotes (live, InputAnalyzer::kLiveNotes, written);
+
+    auto drawEv = [&] (double start, double dur, int midi, bool active)
+    {
+        if (midi < 0)
+            return;
+        const double end = start + juce::jmax (0.08, dur);
+        if (end < leftQ || start > leftQ + windowQ)
+            return;
+        float x0 = juce::jlimit ((float) r.getX() + 2.0f, (float) r.getRight() - 8.0f, xAt (start));
+        float x1 = juce::jlimit (x0 + 16.0f, (float) r.getRight() - 2.0f, xAt (end));
+        auto box = juce::Rectangle<float> (x0, (float) r.getY() + 14.0f, juce::jmax (18.0f, x1 - x0), (float) r.getHeight() - 18.0f);
+        g.setColour (juce::Colour (SessionLookAndFeel::kGuitar).withAlpha (active ? 0.90f : 0.55f));
+        g.fillRoundedRectangle (box, 3.0f);
+        g.setFont (uiFont (11.0f, true));
+        g.setColour (juce::Colour (SessionLookAndFeel::kBg));
+        g.drawText (InputAnalyzer::noteNameFromMidi (midi), box, juce::Justification::centred, false);
+    };
+
+    for (int i = written - 1; i >= 0; --i)
+        drawEv ((double) live[i].startBeat, (double) live[i].durBeat, live[i].midi, live[i].active != 0);
+
+    const auto hist = an.copyHistory();
+    const int nHist = juce::jmin ((int) hist.size(), 64);
+    for (int i = (int) hist.size() - nHist; i < (int) hist.size(); ++i)
+        if (i >= 0)
+            drawEv (hist[(size_t) i].startQuarter, hist[(size_t) i].durationQuarter, hist[(size_t) i].midi, false);
+}
+
+void SessionUI::exportPlayerMidi()
+{
+    auto dest = SessionSettings::projectsDir().getChildFile (
+        proc.getDaw().getProject().name + "-notes.mid");
+    const auto err = proc.getAnalyzer().exportMidi (dest);
+    if (err.isNotEmpty())
+        juce::NativeMessageBox::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "MIDI", err);
+    else
+        recPath.setText ("MIDI  " + dest.getFullPathName(), juce::dontSendNotification);
 }
 
 PluginRack& SessionUI::selectedTrackRack()
@@ -1328,6 +1435,7 @@ void SessionUI::doNewProject()
     auto& host = proc.getPluginHost();
     auto& p = proc.getDaw().getProject();
     p.resetNew (host, name);
+    proc.getAnalyzer().clearTranscription();
     p.prepare (proc.getDaw().getSampleRate(), 4096);
     refreshDawMixer();
     projectLbl.setText (name, juce::dontSendNotification);
@@ -1351,6 +1459,7 @@ void SessionUI::doOpenProject()
             return;
         }
         proc.getDaw().getProject().prepare (proc.getDaw().getSampleRate(), 4096);
+        proc.getAnalyzer().replaceHistory (proc.getDaw().getProject().notes);
         refreshDawMixer();
         projectLbl.setText (proc.getDaw().getProject().name, juce::dontSendNotification);
     });
@@ -1358,6 +1467,7 @@ void SessionUI::doOpenProject()
 
 void SessionUI::doSaveProject()
 {
+    proc.getDaw().getProject().notes = proc.getAnalyzer().copyHistory();
     const auto err = proc.getDaw().getProject().save();
     if (err.isNotEmpty())
         juce::NativeMessageBox::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Save", err);

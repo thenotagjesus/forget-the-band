@@ -1,14 +1,15 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "Daw/DawModel.h"
 #include <array>
 #include <atomic>
 #include <vector>
 
 /**
- * Pitch / key / tempo / activity analysis.
- * Audio thread: pushSamples() only (lock-free FIFO).
- * Worker thread: YIN, chroma, onset IOIs. Publishes atomics the audio thread may read.
+ * Pitch / key / tempo / activity / transcription.
+ * Audio thread: pushSamples() + drainMidi() only (lock-free FIFOs).
+ * Worker thread: YIN, chroma, onset IOIs, note on/off. Publishes atomics.
  */
 class InputAnalyzer : public juce::Thread
 {
@@ -22,12 +23,14 @@ public:
     /** Audio thread. Copies into a lock-free ring; drops if the ring is full. */
     void pushSamples (const float* data, int numSamples) noexcept;
 
+    /** Audio thread. Drain pitch-to-MIDI events into midiScratch. */
+    void drainMidi (juce::MidiBuffer& dest, int numSamples) noexcept;
+
     void run() override;
 
     float getFrequencyHz() const noexcept { return freqHz.load (std::memory_order_relaxed); }
     float getConfidence()  const noexcept { return confidence.load (std::memory_order_relaxed); }
     int   getMidiNote()    const noexcept { return midiNote.load (std::memory_order_relaxed); }
-    /** Cents vs nearest MIDI note. 0 if no reliable pitch. */
     float getCents() const noexcept;
     int   getKeyPc()       const noexcept { return keyPc.load (std::memory_order_relaxed); }
     float getBpm()         const noexcept { return bpm.load (std::memory_order_relaxed); }
@@ -54,31 +57,49 @@ public:
     bool isEnergyDrift() const noexcept { return energyDrift.load (std::memory_order_relaxed) != 0; }
 
     void setScaleIntervals (int mask) noexcept { scaleMask.store (mask, std::memory_order_relaxed); }
-    void captureCal (int stage) noexcept; // 0 soft, 1 mid, 2 hard
-    void resetEngage() noexcept { engaged.store (0, std::memory_order_relaxed); }
+    void captureCal (int stage) noexcept;
+    void resetEngage() noexcept;
 
-    /** Manual override. pc 0–11. Clears auto-lock for key. */
+    void setTransportQuarter (double q) noexcept { transportQ.store (q, std::memory_order_relaxed); }
+
     void setManualKey (int pc) noexcept;
-    /** Manual override. bpm 60–180. Clears auto-lock for tempo. */
     void setManualBpm (float v) noexcept;
     void unlockKey() noexcept;
     void unlockBpm() noexcept;
-    /** Seed published key without changing follow/lock flags. */
     void setKeySeed (int pc) noexcept;
-    /** Seed published BPM without changing follow/lock flags. */
     void setBpmSeed (float v) noexcept;
-    /** Nudge published BPM; keeps slew/auto flags. */
     void nudgeBpm (float delta) noexcept;
+
+    int   getPlayerChordDegree() const noexcept { return playerChordDeg.load (std::memory_order_relaxed); }
+    int   getPlayerChordRoot()   const noexcept { return playerChordRoot.load (std::memory_order_relaxed); }
+    bool  consumeOnset() noexcept { return onsetFlag.exchange (0, std::memory_order_relaxed) != 0; }
+    bool  peekOnset() const noexcept { return onsetFlag.load (std::memory_order_relaxed) != 0; }
+    void  copyChroma (float out[12]) const noexcept;
+    juce::String getPlayerChordName() const;
+
+    static constexpr int kLiveNotes = 48;
+    void copyLiveNotes (Daw::LiveNote* dest, int maxN, int& written) const noexcept;
+    std::vector<Daw::NoteEvent> copyHistory() const;
+    void replaceHistory (std::vector<Daw::NoteEvent> notes);
+    void clearTranscription();
+    juce::String exportMidi (const juce::File& dest) const;
 
     static const char* pitchClassName (int pc);
     static juce::String noteNameFromMidi (int note);
 
 private:
+    struct MidiPulse { juce::uint8 status = 0, note = 0, vel = 0; };
+
     void analyseWindow (const float* x, int n) noexcept;
     float detectYin (const float* x, int n, float& conf) noexcept;
     void updateKey (float hz, float conf, float rms) noexcept;
     void updateTempo (float rms, int n) noexcept;
     void maybeLock() noexcept;
+    void emitNote (float hz, float conf, float rms) noexcept;
+    void pushMidi (juce::uint8 status, juce::uint8 note, juce::uint8 vel) noexcept;
+    void updatePlayerChord() noexcept;
+    void closeHeldNote (double endQ) noexcept;
+    double currentQuarter() const noexcept;
 
     double sampleRate = 44100.0;
     int hop = 512;
@@ -92,10 +113,13 @@ private:
     std::vector<float> yinCmnd;
     std::vector<float> gather;
 
+    juce::AbstractFifo midiFifo { 512 };
+    std::vector<MidiPulse> midiRing;
+
     std::atomic<float> freqHz { 0.0f };
     std::atomic<float> confidence { 0.0f };
     std::atomic<int>   midiNote { -1 };
-    std::atomic<int>   keyPc { 4 };          // E, guitar-friendly default
+    std::atomic<int>   keyPc { 4 };
     std::atomic<float> bpm { 112.0f };
     std::atomic<float> activity { 0.0f };
     std::atomic<float> intensity { 0.35f };
@@ -111,12 +135,17 @@ private:
     std::atomic<int>   energyDrift { 0 };
     std::atomic<int>   engaged { 0 };
     std::atomic<int>   calibrated { 0 };
-    std::atomic<int>   scaleMask { 0x4A9 }; // pentatonic 0,3,5,7,10
+    std::atomic<int>   scaleMask { 0x4A9 };
     std::atomic<float> calSoft { 0.02f };
     std::atomic<float> calMid { 0.08f };
     std::atomic<float> calHard { 0.20f };
+    std::atomic<int>   playerChordDeg { 0 };
+    std::atomic<int>   playerChordRoot { 4 };
+    std::atomic<int>   onsetFlag { 0 };
+    std::atomic<int>   liveCount { 0 };
 
     std::array<float, 12> chroma {};
+    std::array<std::atomic<float>, 12> chromaAtom {};
     int pendingKey = 4;
     int keyStableHops = 0;
     int hopsPerBar = 80;
@@ -134,4 +163,21 @@ private:
     float activitySmooth = 0.0f;
     float intensitySmooth = 0.35f;
     double hopsElapsed = 0.0;
+
+    int heldNote = -1;
+    int hangHops = 0;
+    int stableNoteHops = 0;
+    int pendingMidi = -1;
+    Daw::NoteEvent openEvent;
+    int pendingChord = 0;
+    int chordStableHops = 0;
+
+    std::array<Daw::LiveNote, kLiveNotes> liveNotes {};
+    std::atomic<int> liveWrite { 0 };
+    int liveHeld = -1;
+
+    std::atomic<double> transportQ { 0.0 };
+
+    juce::CriticalSection historyLock;
+    std::vector<Daw::NoteEvent> history;
 };

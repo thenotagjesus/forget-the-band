@@ -57,6 +57,8 @@ private:
     void drawTuner (juce::Graphics& g, juce::Rectangle<int> r) const;
     void drawNeck (juce::Graphics& g, juce::Rectangle<int> r) const;
     void drawEnergy (juce::Graphics& g, juce::Rectangle<int> r, float v, juce::Colour c, const juce::String& lab) const;
+    void drawNoteLane (juce::Graphics& g, juce::Rectangle<int> r) const;
+    void exportPlayerMidi();
     void setupRotary (juce::Slider& s, double min, double max, double def, double step);
     void applyScaleMask();
     void fillPluginCombo (juce::ComboBox& box, PluginRack& rack, int slot);
@@ -88,7 +90,8 @@ private:
     juce::ToggleButton grooveFloor { "Keep Groove" }, fadeSilence { "Fade on rest" };
     juce::ToggleButton energyDrift { "Energy drift" };
     juce::TextButton calSoft { "Soft" }, calMid { "Mid" }, calHard { "Hard" };
-    juce::Label chordName, nextChord, formLbl, scaleLbl, feelLbl, phraseLbl, energyLbl;
+    juce::Label chordName, nextChord, playerNote, formLbl, scaleLbl, feelLbl, phraseLbl, energyLbl;
+    juce::Label noteLaneLbl;
     juce::Slider bpmSlider;
     juce::Slider gainSlider, gateSlider, driveSlider, toneSlider, levelSlider, delaySlider, spaceSlider;
     juce::Label styleLbl, driveLbl, toneLbl, levelLbl, bpmLbl, ampLbl, mixLbl;
@@ -99,7 +102,7 @@ private:
     juce::TextButton recordBtn { "Record" }, audioBtn { "Audio" };
     juce::TextButton playBtn { "Play" }, rtzBtn { "RTZ" }, cycleBtn { "Cycle" };
     juce::TextButton newBtn { "New" }, openBtn { "Open" }, saveBtn { "Save" };
-    juce::TextButton bounceBtn { "Bounce" }, undoBtn { "Undo" };
+    juce::TextButton bounceBtn { "Bounce" }, undoBtn { "Undo" }, midiBtn { "MIDI" };
     juce::TextButton viewArrange { "Arrange" }, viewMixer { "Mixer" };
     juce::ToggleButton ampBypass { "Amp Bypass" };
     juce::TextButton scanBtn { "Scan VST3" };
@@ -120,7 +123,7 @@ private:
     std::array<juce::Label, 4> gSlotLbl, tSlotLbl;
 
     juce::Rectangle<int> headerBounds, transportBounds, followBounds, tunerBounds, inMeterBounds;
-    juce::Rectangle<int> hudBounds, neckBounds, playerMeterBounds, bandMeterBounds;
+    juce::Rectangle<int> hudBounds, neckBounds, playerMeterBounds, bandMeterBounds, noteLaneBounds;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SessionUI)
 };
