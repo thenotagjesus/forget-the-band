@@ -4,7 +4,7 @@
 
 const char* StemWriter::stemFileName (int s)
 {
-    static const char* n[] = { "guitar.wav", "drums.wav", "bass.wav", "keys.wav", "master.wav" };
+    static const char* n[] = { "guitar.wav", "drums.wav", "bass.wav", "keys.wav", "fx.wav", "master.wav" };
     if (s < 0 || s >= NumStems) return "unknown.wav";
     return n[s];
 }
@@ -131,7 +131,7 @@ void StemWriter::writeSidecar()
     txt << "lengthSamples=" << recordedLength.load() << "\n";
     txt << "lengthSeconds=" << getRecordedSeconds() << "\n";
     txt << "format=32-bit float WAV stereo\n";
-    txt << "stems=guitar,drums,bass,keys,master\n";
+    txt << "stems=guitar,drums,bass,keys,fx,master\n";
     txt << "style=" << metaStyle << "\n";
     txt << "key=" << metaKey << "\n";
     txt << "bpm=" << metaBpm << "\n";
@@ -189,6 +189,7 @@ void StemWriter::push (const float* guitarL, const float* guitarR,
                        const float* drumsL,  const float* drumsR,
                        const float* bassL,   const float* bassR,
                        const float* keysL,   const float* keysR,
+                       const float* fxL,     const float* fxR,
                        const float* masterL, const float* masterR,
                        int numSamples) noexcept
 {
@@ -209,7 +210,7 @@ void StemWriter::push (const float* guitarL, const float* guitarR,
     }
 
     const float* src[kPlanes] = {
-        guitarL, guitarR, drumsL, drumsR, bassL, bassR, keysL, keysR, masterL, masterR
+        guitarL, guitarR, drumsL, drumsR, bassL, bassR, keysL, keysR, fxL, fxR, masterL, masterR
     };
 
     int s1 = 0, n1 = 0, s2 = 0, n2 = 0;

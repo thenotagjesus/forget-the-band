@@ -11,7 +11,7 @@
  * Disk-backed stem recorder. Audio thread writes a lock-free ring only.
  * Message thread starts/stops; a worker thread writes 32-bit float WAVs.
  *
- * Stems: guitar, drums, bass, keys (stereo each) + stereo master.
+ * Stems: guitar, drums, bass, keys, fx (stereo each) + stereo master.
  */
 class StemWriter
 {
@@ -22,11 +22,12 @@ public:
         Drums,
         Bass,
         Keys,
+        Fx,
         Master,
         NumStems
     };
 
-    static constexpr int kPlanes = 10; // 5 stems × 2 ch
+    static constexpr int kPlanes = 12; // 6 stems × 2 ch
     static constexpr int kMaxSeconds = 45 * 60;
 
     StemWriter();
@@ -50,6 +51,7 @@ public:
                const float* drumsL,  const float* drumsR,
                const float* bassL,   const float* bassR,
                const float* keysL,   const float* keysR,
+               const float* fxL,     const float* fxR,
                const float* masterL, const float* masterR,
                int numSamples) noexcept;
 

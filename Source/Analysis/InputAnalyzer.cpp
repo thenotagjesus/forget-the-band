@@ -63,6 +63,7 @@ void InputAnalyzer::prepare (double sr)
     ioiCount = ioiWrite = 0;
     lastEnergy = fluxAvg = 0.0f;
     samplesSinceOnset = 1.0e9;
+    lastNoteOnSec = -1.0;
     rmsSmooth = activitySmooth = 0.0f;
     intensitySmooth = 0.35f;
     hopsElapsed = 0.0;
@@ -340,12 +341,20 @@ void InputAnalyzer::updateKey (float hz, float conf, float rms) noexcept
         keyPc.store (pendingKey, std::memory_order_relaxed);
 }
 
+void InputAnalyzer::pushIoi (float sec) noexcept
+{
+    if (sec < 0.18f || sec > 1.20f)
+        return;
+    ioiSec[(size_t) ioiWrite] = sec;
+    ioiWrite = (ioiWrite + 1) % (int) ioiSec.size();
+    ioiCount = juce::jmin ((int) ioiSec.size(), ioiCount + 1);
+}
+
 void InputAnalyzer::updateTempo (float rms, int n) noexcept
 {
     juce::ignoreUnused (rms);
 
     float energy = 0.0f;
-    // Use the tail of the window as a short flux frame.
     const int fluxN = juce::jmin (n, hop);
     const float* x = window.data() + (n - fluxN);
     for (int i = 0; i < fluxN; ++i)
@@ -358,21 +367,16 @@ void InputAnalyzer::updateTempo (float rms, int n) noexcept
 
     samplesSinceOnset += (double) hop;
 
-    const float thresh = juce::jmax (0.008f, fluxAvg * 2.4f);
-    const double minGap = sampleRate * 0.18; // ~330 BPM cap as 8ths; we'll fold later
-    const bool onset = flux > thresh && energy > 0.02f && samplesSinceOnset > minGap;
+    const float thresh = juce::jmax (0.0025f, fluxAvg * 2.1f);
+    const double minGap = sampleRate * 0.14;
+    const bool onset = flux > thresh && energy > 0.006f && samplesSinceOnset > minGap;
 
     if (onset)
     {
         onsetFlag.store (1, std::memory_order_relaxed);
         const float ioi = (float) (samplesSinceOnset / sampleRate);
         samplesSinceOnset = 0.0;
-        if (ioi >= 0.22f && ioi <= 1.05f) // ~57–273 quarter-note BPM before folding
-        {
-            ioiSec[(size_t) ioiWrite] = ioi;
-            ioiWrite = (ioiWrite + 1) % (int) ioiSec.size();
-            ioiCount = juce::jmin ((int) ioiSec.size(), ioiCount + 1);
-        }
+        pushIoi (ioi);
     }
 
     if (autoBpm.load (std::memory_order_relaxed) == 0
@@ -381,23 +385,34 @@ void InputAnalyzer::updateTempo (float rms, int n) noexcept
 
     if (ioiCount >= 4)
     {
-        std::array<float, 12> tmp = ioiSec;
-        const int used = ioiCount;
+        std::array<float, 8> tmp = ioiSec;
+        const int used = juce::jmin (ioiCount, (int) tmp.size());
         std::sort (tmp.begin(), tmp.begin() + used);
         const float median = tmp[(size_t) (used / 2)];
-        float est = 60.0f / juce::jmax (0.2f, median);
+        float est = 60.0f / juce::jmax (0.18f, median);
+        const float cur = juce::jmax (60.0f, bpmSmoothed);
+        for (int k = 0; k < 4; ++k)
+        {
+            if (est > cur * 1.42f && est < cur * 2.65f)
+                est *= 0.5f;
+            else if (est < cur * 0.72f && est > cur * 0.36f)
+                est *= 2.0f;
+            else
+                break;
+        }
         while (est > 180.0f) est *= 0.5f;
         while (est < 70.0f)  est *= 2.0f;
         est = juce::jlimit (70.0f, 180.0f, est);
-        bpmSmoothed = bpmSmoothed * 0.85f + est * 0.15f;
+        bpmSmoothed = bpmSmoothed * 0.65f + est * 0.35f;
 
         if (std::abs (est - bpmSmoothed) < 4.0f)
             ++bpmStableHops;
         else
-            bpmStableHops = 0;
+            bpmStableHops = juce::jmax (0, bpmStableHops - 2);
 
-        if (bpmLocked.load (std::memory_order_relaxed) == 0)
-            bpm.store (bpmSmoothed, std::memory_order_relaxed);
+        bpmConfident.store (bpmStableHops >= 12 ? 1 : 0, std::memory_order_relaxed);
+        // Auto BPM never freezes — Lock Tempo is the only freeze.
+        bpm.store (bpmSmoothed, std::memory_order_relaxed);
     }
 }
 
@@ -410,8 +425,9 @@ void InputAnalyzer::maybeLock() noexcept
     if (autoKey.load() != 0 && keyLocked.load() == 0 && keyStableHops >= barsNeeded)
         keyLocked.store (1, std::memory_order_relaxed);
 
-    if (autoBpm.load() != 0 && bpmLocked.load() == 0 && bpmStableHops >= barsNeeded / 2)
-        bpmLocked.store (1, std::memory_order_relaxed);
+    // Do not auto-lock BPM mid-jam. Lock Tempo is the only freeze.
+    bpmConfident.store (bpmStableHops >= juce::jmax (8, barsNeeded / 4) ? 1 : 0,
+                        std::memory_order_relaxed);
 }
 
 void InputAnalyzer::analyseWindow (const float* x, int n) noexcept
@@ -625,6 +641,12 @@ void InputAnalyzer::emitNote (float hz, float conf, float rms) noexcept
             }
             const int vel = juce::jlimit (1, 127, (int) (rms * conf * 180.0f));
             pushMidi (0x90, (juce::uint8) note, (juce::uint8) vel);
+            {
+                const double nowSec = hopsElapsed * (double) hop / juce::jmax (1.0, sampleRate);
+                if (lastNoteOnSec >= 0.0)
+                    pushIoi ((float) (nowSec - lastNoteOnSec));
+                lastNoteOnSec = nowSec;
+            }
             heldNote = note;
             openEvent = {};
             openEvent.startQuarter = q;

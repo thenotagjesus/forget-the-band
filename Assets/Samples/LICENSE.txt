@@ -1,0 +1,54 @@
+Forget The Band bundled one-shots
+=================================
+
+Every WAV in this folder is either CC0 / public domain, or an original
+DSP one-shot released under CC0 1.0 by Centrophy / Forget The Band.
+
+Do not add copyrighted kits, Rocksmith rips, Splice paid packs, or CC-BY-NC.
+
+1) BushDrum (LinnDrum-style kit) — CC0 1.0
+   Source: https://github.com/EwonRael/BushDrum
+   License page: https://github.com/EwonRael/BushDrum/blob/main/LICENSE
+   License: Creative Commons Zero v1.0 Universal
+   Files:
+     drums/funk_kick.wav     (kick.wav)
+     drums/funk_snare.wav    (snare-m.wav)
+     drums/funk_hat.wav      (hihat-closed.wav)
+     drums/metal_kick.wav    (kick-alt.wav)
+     drums/metal_snare.wav   (snare-h.wav)
+     drums/metal_hat.wav     (hihat-open.wav)
+     drums/crash.wav         (crash.wav)
+     fx/clap.wav             (clap.wav)
+
+2) Kenney Impact Sounds 1.0 — CC0
+   Source: https://kenney.nl/assets/impact-sounds
+   License (in pack License.txt): Creative Commons Zero, CC0
+     http://creativecommons.org/publicdomain/zero/1.0/
+   Files (OGG transcoded to 44.1 kHz mono 16-bit WAV):
+     fx/impact_metal.wav     Audio/impactMetal_heavy_000.ogg
+     fx/impact_plate.wav     Audio/impactPlate_heavy_000.ogg
+     fx/impact_bell.wav      Audio/impactBell_heavy_000.ogg
+     fx/foley_wood.wav       Audio/footstep_wood_000.ogg
+     fx/foley_glass.wav      Audio/impactGlass_heavy_000.ogg
+
+3) Kenney Sci-Fi Sounds 1.0 — CC0
+   Source: https://kenney.nl/assets/sci-fi-sounds
+   License (in pack License.txt): Creative Commons Zero, CC0
+     http://creativecommons.org/publicdomain/zero/1.0/
+   Files (OGG transcoded to 44.1 kHz mono 16-bit WAV):
+     fx/zap.wav              Audio/laserSmall_000.ogg
+     fx/boom.wav             Audio/lowFrequency_explosion_000.ogg
+     fx/hit.wav              Audio/explosionCrunch_000.ogg
+
+4) Original DSP one-shots — CC0 1.0
+   Author: Centrophy / Forget The Band
+   Generated procedurally (not sampled from copyrighted recordings).
+   License: CC0 1.0 Universal  https://creativecommons.org/publicdomain/zero/1.0/
+   Files:
+     drums/acoustic_kick.wav
+     drums/acoustic_snare.wav
+     drums/acoustic_hat.wav
+     bass/pluck.wav
+     keys/hammer.wav
+
+User drops (not shipped): Documents/Centrophy/ForgetTheBand/samples/fx

@@ -1,5 +1,6 @@
 #include "DSP/FollowerBand.h"
 #include <initializer_list>
+#include <cmath>
 
 namespace
 {
@@ -158,9 +159,10 @@ const char* FollowerBand::degreeName (int deg)
     return names[deg];
 }
 
-void FollowerBand::prepare (double sr)
+void FollowerBand::prepare (double sr, SampleBank* bank)
 {
     sampleRate = sr > 1.0 ? sr : 44100.0;
+    samples = bank;
     const float fsr = (float) sampleRate;
     hatHp.setHighPass (fsr, 6200.0f, 0.70f);
     snareBp.setPeaking (fsr, 1900.0f, 0.75f, 6.0f);
@@ -212,6 +214,7 @@ void FollowerBand::reset() noexcept
     nextDegAtom.store ((int) DegI);
     soundingKeyAtom.store (4);
     fillAtom.store (0);
+    crashAtom.store (0);
     changeAtom.store (0);
 }
 
@@ -615,12 +618,39 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
     const auto kv  = (KeysVoice) juce::jlimit (0, (int) KeysVoice::NumVoices - 1,
                                               keysVoice.load (std::memory_order_relaxed));
 
+    auto kickSlot = [&]() -> int
+    {
+        if (kit == DrumKit::Funk)  return SampleBank::KickFunk;
+        if (kit == DrumKit::Metal) return SampleBank::KickMetal;
+        return SampleBank::KickAcoustic;
+    };
+    auto snareSlot = [&]() -> int
+    {
+        if (kit == DrumKit::Funk)  return SampleBank::SnareFunk;
+        if (kit == DrumKit::Metal) return SampleBank::SnareMetal;
+        return SampleBank::SnareAcoustic;
+    };
+    auto hatSlot = [&]() -> int
+    {
+        if (kit == DrumKit::Funk)  return SampleBank::HatFunk;
+        if (kit == DrumKit::Metal) return SampleBank::HatMetal;
+        return SampleBank::HatAcoustic;
+    };
+    auto playDrum = [&] (int slot, float vel)
+    {
+        if (samples != nullptr && samples->isReady (slot))
+            samples->play (slot, vel, 1.0f, 0);
+        return samples != nullptr && samples->isReady (slot);
+    };
+
     auto trigKick = [&] (float vel)
     {
-        kickEnv = juce::jmax (kickEnv, vel);
+        const bool sampled = playDrum (kickSlot(), vel);
+        const float sv = sampled ? vel * 0.22f : vel;
+        kickEnv = juce::jmax (kickEnv, sv);
         switch (kit)
         {
-            case DrumKit::Metal:    kickHz = 128.0f; kickClick = juce::jmax (kickClick, vel); break;
+            case DrumKit::Metal:    kickHz = 128.0f; kickClick = juce::jmax (kickClick, sv); break;
             case DrumKit::Jazz:     kickHz = 72.0f;  break;
             case DrumKit::Funk:     kickHz = 108.0f; break;
             case DrumKit::Electro:  kickHz = 82.0f;  break;
@@ -630,12 +660,15 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
     };
     auto trigSnare = [&] (float vel)
     {
-        snareEnv = juce::jmax (snareEnv, vel);
+        const bool sampled = playDrum (snareSlot(), vel);
+        snareEnv = juce::jmax (snareEnv, sampled ? vel * 0.22f : vel);
         snareTonePhase = 0;
     };
     auto trigHat = [&] (float vel, bool open)
     {
-        hatEnv = juce::jmax (hatEnv, vel * (0.82f + 0.18f * (0.5f + 0.5f * noise())));
+        const float hv = vel * (0.82f + 0.18f * (0.5f + 0.5f * noise()));
+        const bool sampled = playDrum (hatSlot(), hv);
+        hatEnv = juce::jmax (hatEnv, sampled ? hv * 0.20f : hv);
         hatOpen = open;
         switch (kit)
         {
@@ -663,9 +696,13 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
     const bool bassLive  = bassOn.load (std::memory_order_relaxed) != 0 && (thin & 0x2) != 0;
     const bool keysLive  = keysOn.load (std::memory_order_relaxed) != 0 && (thin & 0x4) != 0;
 
+    crashAtom.store (0, std::memory_order_relaxed);
     if (drumsLive && step16 == 0 && pendingCrash)
     {
         crashEnv = 0.88f;
+        crashAtom.store (1, std::memory_order_relaxed);
+        if (samples != nullptr && samples->isReady (SampleBank::Crash))
+            samples->play (SampleBank::Crash, 0.72f, 1.0f, 0);
         pendingCrash = false;
     }
 
@@ -794,6 +831,13 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
         bassPluck = juce::jmax (bassPluck, bassPluckAmt > 0.01f ? 0.80f : 0.20f);
         if (bv == BassVoice::Slap)
             bassPop = juce::jmax (bassPop, 0.90f);
+        if (samples != nullptr && samples->isReady (SampleBank::BassPluck)
+            && (bv == BassVoice::Finger || bv == BassVoice::Pick || bv == BassVoice::Slap))
+        {
+            const float rate = std::pow (2.0f, ((float) midi - 40.0f) / 12.0f);
+            samples->play (SampleBank::BassPluck, bassEnv * 0.85f, rate, 2);
+            bassEnv *= 0.28f; // synth fallback stays quiet under the pluck
+        }
     }
 
     bool keyHit = false;
@@ -821,6 +865,20 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
         setKeyVoicing (st, deg, keyPc);
         const float vel = 0.47f + 0.31f * inten;
         hitKeys (kv, vel);
+        if (samples != nullptr && samples->isReady (SampleBank::KeysHammer)
+            && (kv == KeysVoice::Piano || kv == KeysVoice::EP))
+        {
+            for (int v = 0; v < 4; ++v)
+            {
+                const float hz = keyHz[(size_t) v];
+                if (hz < 20.0f) continue;
+                const float midiF = 69.0f + 12.0f * std::log2 (hz / 440.0f);
+                const float rate = std::pow (2.0f, (midiF - 60.0f) / 12.0f);
+                samples->play (SampleBank::KeysHammer, vel * (v == 0 ? 0.55f : 0.28f), rate, 3);
+            }
+            keyEnv *= 0.35f;
+            keyTargetEnv *= 0.35f;
+        }
     }
 }
 
@@ -1049,6 +1107,18 @@ void FollowerBand::process (int keyPc,
         const float gd = g * drumsGain;
         const float gb = g * bassGain;
         const float gk = g * keysGain;
+        if (samples != nullptr)
+        {
+            float dS = 0, bS = 0, kS = 0, z = 0;
+            samples->mix (0, dS, z);
+            z = 0;
+            samples->mix (2, bS, z);
+            z = 0;
+            samples->mix (3, kS, z);
+            dL += dS; dR += dS * 0.96f;
+            bs += bS;
+            kMix += kS; kMixR += kS * 0.92f;
+        }
         drumsL[i] = dL * gd;
         drumsR[i] = dR * gd;
         bassL[i]  = bs * gb;

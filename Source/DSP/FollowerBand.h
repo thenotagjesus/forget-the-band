@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include "DSP/Biquad.h"
+#include "DSP/SampleBank.h"
 #include <array>
 #include <atomic>
 #include <cstdint>
@@ -66,7 +67,7 @@ public:
         NumDegrees
     };
 
-    void prepare (double sampleRate);
+    void prepare (double sampleRate, SampleBank* samples = nullptr);
     void reset() noexcept;
 
     void setStyle (Style s) noexcept { style.store ((int) s, std::memory_order_relaxed); }
@@ -90,7 +91,7 @@ public:
     double getStepAccum() const noexcept { return stepAccum; }
     double getSamplesPer16th() const noexcept { return samplesPer16th; }
 
-    enum Member : int { MemberDrums = 0, MemberBass, MemberKeys, NumMembers };
+    enum Member : int { MemberDrums = 0, MemberBass, MemberKeys, MemberFx, NumMembers };
 
     void setMemberEnabled (int member, bool e) noexcept
     {
@@ -98,12 +99,14 @@ public:
         if (member == MemberDrums) drumsOn.store (v, std::memory_order_relaxed);
         else if (member == MemberBass) bassOn.store (v, std::memory_order_relaxed);
         else if (member == MemberKeys) keysOn.store (v, std::memory_order_relaxed);
+        else if (member == MemberFx)   fxOn.store (v, std::memory_order_relaxed);
     }
     bool isMemberEnabled (int member) const noexcept
     {
         if (member == MemberDrums) return drumsOn.load (std::memory_order_relaxed) != 0;
         if (member == MemberBass)  return bassOn.load (std::memory_order_relaxed) != 0;
         if (member == MemberKeys)  return keysOn.load (std::memory_order_relaxed) != 0;
+        if (member == MemberFx)    return fxOn.load (std::memory_order_relaxed) != 0;
         return false;
     }
 
@@ -138,6 +141,7 @@ public:
     int   getSoundingKey() const noexcept { return soundingKeyAtom.load (std::memory_order_relaxed); }
     float getSwing()       const noexcept { return lastSwing; }
     bool  isFillBar()      const noexcept { return fillAtom.load (std::memory_order_relaxed) != 0; }
+    bool  isCrashDownbeat() const noexcept { return crashAtom.load (std::memory_order_relaxed) != 0; }
     bool  isChangeComing() const noexcept { return changeAtom.load (std::memory_order_relaxed) != 0; }
 
     juce::String chordName() const;
@@ -185,6 +189,7 @@ private:
     std::atomic<int> drumsOn { 1 };
     std::atomic<int> bassOn { 1 };
     std::atomic<int> keysOn { 1 };
+    std::atomic<int> fxOn { 1 };
     std::atomic<int> followDeg { -1 };
     std::atomic<int> thinMask { 0x7 };
     std::atomic<int> barIndexAtom { 0 };
@@ -194,6 +199,7 @@ private:
     std::atomic<int> nextDegAtom { (int) DegIV };
     std::atomic<int> soundingKeyAtom { 4 };
     std::atomic<int> fillAtom { 0 };
+    std::atomic<int> crashAtom { 0 };
     std::atomic<int> changeAtom { 0 };
 
     double sampleRate = 44100.0;
@@ -257,4 +263,6 @@ private:
     uint32_t rng = 0xC3A10Fu;
 
     Biquad hatHp, snareBp, bassLp, keyLp, tomBp;
+
+    SampleBank* samples = nullptr;
 };

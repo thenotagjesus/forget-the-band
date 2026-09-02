@@ -140,12 +140,18 @@ SessionUI::SessionUI (SessionProcessor& processor, juce::AudioDeviceManager& dev
     kitBox.setSelectedId (1, juce::dontSendNotification);
     bassVoiceBox.setSelectedId (1, juce::dontSendNotification);
     keysVoiceBox.setSelectedId (1, juce::dontSendNotification);
+    fxVoiceLbl.setText ("FX", juce::dontSendNotification);
+    for (int i = 0; i < (int) FxChair::Voice::NumVoices; ++i)
+        fxVoiceBox.addItem (FxChair::voiceName (i), i + 1);
+    fxVoiceBox.setSelectedId (1, juce::dontSendNotification);
     addAndMakeVisible (kitLbl);
     addAndMakeVisible (bassVoiceLbl);
     addAndMakeVisible (keysVoiceLbl);
+    addAndMakeVisible (fxVoiceLbl);
     addAndMakeVisible (kitBox);
     addAndMakeVisible (bassVoiceBox);
     addAndMakeVisible (keysVoiceBox);
+    addAndMakeVisible (fxVoiceBox);
 
     keyBox.addItemList ({ "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }, 1);
     keyBox.setSelectedId (5, juce::dontSendNotification); // E
@@ -216,6 +222,7 @@ SessionUI::SessionUI (SessionProcessor& processor, juce::AudioDeviceManager& dev
     addAndMakeVisible (drumsStrip);
     addAndMakeVisible (bassStrip);
     addAndMakeVisible (keysStrip);
+    addAndMakeVisible (fxStrip);
     addAndMakeVisible (masterStrip);
 
     playBtn.setColour (juce::TextButton::buttonOnColourId, juce::Colour (SessionLookAndFeel::kAccent));
@@ -324,7 +331,9 @@ SessionUI::SessionUI (SessionProcessor& processor, juce::AudioDeviceManager& dev
     addAndMakeVisible (nextChord);
     addAndMakeVisible (playerNote);
     addAndMakeVisible (noteLaneLbl);
+    midiBtn.setTooltip ("Save the notes you played as a .mid file");
     addAndMakeVisible (midiBtn);
+    addAndMakeVisible (loadFxBtn);
 
     static const char* gNamesFix[] = { "PreAmp", "Amp", "Post", "Slot 4" };
     for (int i = 0; i < 4; ++i)
@@ -334,6 +343,7 @@ SessionUI::SessionUI (SessionProcessor& processor, juce::AudioDeviceManager& dev
     drumsStrip.level.setValue  (proc.getBusLevel (SessionProcessor::Drums));
     bassStrip.level.setValue   (proc.getBusLevel (SessionProcessor::Bass));
     keysStrip.level.setValue   (proc.getBusLevel (SessionProcessor::Keys));
+    fxStrip.level.setValue     (proc.getBusLevel (SessionProcessor::Fx));
     masterStrip.level.setValue (proc.getBusLevel (SessionProcessor::Master));
 
     loadSettings();
@@ -390,6 +400,12 @@ void SessionUI::wireControls()
                                                                             keysVoiceBox.getSelectedId() - 1));
         markDirty();
     };
+    fxVoiceBox.onChange = [this]
+    {
+        proc.getFxChair().setVoice ((FxChair::Voice) juce::jlimit (0, (int) FxChair::Voice::NumVoices - 1,
+                                                                  fxVoiceBox.getSelectedId() - 1));
+        markDirty();
+    };
 
     autoKey.onClick = [this]
     {
@@ -409,7 +425,12 @@ void SessionUI::wireControls()
     autoBpm.onClick = [this]
     {
         if (autoBpm.getToggleState())
+        {
+            lockTempo.setToggleState (false, juce::dontSendNotification);
+            proc.getAnalyzer().setAutoBpm (true);
+            proc.getAnalyzer().setLockTempo (false);
             proc.getAnalyzer().unlockBpm();
+        }
         else
             proc.getAnalyzer().setManualBpm ((float) bpmSlider.getValue());
         markDirty();
@@ -445,6 +466,7 @@ void SessionUI::wireControls()
     bindStrip (drumsStrip,  SessionProcessor::Drums);
     bindStrip (bassStrip,   SessionProcessor::Bass);
     bindStrip (keysStrip,   SessionProcessor::Keys);
+    bindStrip (fxStrip,     SessionProcessor::Fx);
     bindStrip (masterStrip, SessionProcessor::Master);
 
     startBtn.onClick = [this]
@@ -515,6 +537,12 @@ void SessionUI::wireControls()
     bounceBtn.onClick = [this] { doBounce(); };
     undoBtn.onClick   = [this] { proc.getDaw().getProject().undoLast(); };
     midiBtn.onClick   = [this] { exportPlayerMidi(); };
+    loadFxBtn.onClick = [this] {
+        proc.getSamples().scanUserFx();
+        recPath.setText ("FX samples  " + SampleBank::userFxDir().getFullPathName()
+                          + "  (" + juce::String (proc.getSamples().userCount()) + ")",
+                         juce::dontSendNotification);
+    };
     viewArrange.onClick = [this] { mixerFront = false; resized(); };
     viewMixer.onClick   = [this] { mixerFront = true;  resized(); };
     ampBypass.onClick = [this]
@@ -673,13 +701,19 @@ void SessionUI::applyToProcessor()
                                                                         bassVoiceBox.getSelectedId() - 1));
     proc.getBand().setKeysVoice ((FollowerBand::KeysVoice) juce::jlimit (0, (int) FollowerBand::KeysVoice::NumVoices - 1,
                                                                         keysVoiceBox.getSelectedId() - 1));
+    proc.getFxChair().setVoice ((FxChair::Voice) juce::jlimit (0, (int) FxChair::Voice::NumVoices - 1,
+                                                              fxVoiceBox.getSelectedId() - 1));
     if (autoKey.getToggleState())
         proc.getAnalyzer().unlockKey();
     else
         proc.getAnalyzer().setManualKey (keyBox.getSelectedId() - 1);
 
     if (autoBpm.getToggleState())
+    {
         proc.getAnalyzer().unlockBpm();
+        proc.getAnalyzer().setBpmSeed ((float) bpmSlider.getValue());
+        proc.getAnalyzer().setLockTempo (lockTempo.getToggleState());
+    }
     else
         proc.getAnalyzer().setManualBpm ((float) bpmSlider.getValue());
 
@@ -695,6 +729,7 @@ void SessionUI::applyToProcessor()
     proc.setBusLevel (SessionProcessor::Drums,  (float) drumsStrip.level.getValue());
     proc.setBusLevel (SessionProcessor::Bass,   (float) bassStrip.level.getValue());
     proc.setBusLevel (SessionProcessor::Keys,   (float) keysStrip.level.getValue());
+    proc.setBusLevel (SessionProcessor::Fx,     (float) fxStrip.level.getValue());
     proc.setBusLevel (SessionProcessor::Master, (float) masterStrip.level.getValue());
     proc.setAmpBypass (ampBypass.getToggleState());
     proc.getBand().setForm ((FollowerBand::Form) juce::jmax (0, formBox.getSelectedId() - 1));
@@ -735,6 +770,7 @@ void SessionUI::loadSettings()
     drumsStrip.level.setValue  (xml->getDoubleAttribute ("drm", 0.70), juce::dontSendNotification);
     bassStrip.level.setValue   (xml->getDoubleAttribute ("bas", 0.78), juce::dontSendNotification);
     keysStrip.level.setValue   (xml->getDoubleAttribute ("keyLvl", 0.52), juce::dontSendNotification);
+    fxStrip.level.setValue     (xml->getDoubleAttribute ("fxLvl", 0.62), juce::dontSendNotification);
     masterStrip.level.setValue (xml->getDoubleAttribute ("mst", 0.90), juce::dontSendNotification);
 }
 
@@ -754,6 +790,7 @@ void SessionUI::saveSettings()
     xml.setAttribute ("drm",     drumsStrip.level.getValue());
     xml.setAttribute ("bas",     bassStrip.level.getValue());
     xml.setAttribute ("keyLvl",  keysStrip.level.getValue());
+    xml.setAttribute ("fxLvl",   fxStrip.level.getValue());
     xml.setAttribute ("mst",     masterStrip.level.getValue());
     xml.writeTo (SessionSettings::uiXml());
     settingsDirty = false;
@@ -765,6 +802,7 @@ void SessionUI::syncFromSetup (const SessionSettings::Setup& s)
     kitBox.setSelectedId        (s.drumsKit  + 1, juce::dontSendNotification);
     bassVoiceBox.setSelectedId  (s.bassVoice + 1, juce::dontSendNotification);
     keysVoiceBox.setSelectedId  (s.keysVoice + 1, juce::dontSendNotification);
+    fxVoiceBox.setSelectedId    (s.fxVoice   + 1, juce::dontSendNotification);
     formBox.setSelectedId  (s.form + 1, juce::dontSendNotification);
     scaleBox.setSelectedId (s.scale + 1, juce::dontSendNotification);
     feelBox.setSelectedId  (s.feel + 1, juce::dontSendNotification);
@@ -777,6 +815,7 @@ void SessionUI::syncFromSetup (const SessionSettings::Setup& s)
     drumsStrip.mute.setToggleState (! s.drumsIn, juce::dontSendNotification);
     bassStrip.mute.setToggleState  (! s.bassIn, juce::dontSendNotification);
     keysStrip.mute.setToggleState  (! s.keysIn, juce::dontSendNotification);
+    fxStrip.mute.setToggleState    (! s.fxIn, juce::dontSendNotification);
 }
 
 SessionSettings::Setup SessionUI::readSetup() const
@@ -785,10 +824,12 @@ SessionSettings::Setup SessionUI::readSetup() const
     s.drumsIn = proc.getBand().isMemberEnabled (FollowerBand::MemberDrums);
     s.bassIn  = proc.getBand().isMemberEnabled (FollowerBand::MemberBass);
     s.keysIn  = proc.getBand().isMemberEnabled (FollowerBand::MemberKeys);
+    s.fxIn    = proc.getFxChair().isEnabled();
     s.style   = juce::jlimit (0, 4, styleBox.getSelectedId() - 1);
     s.drumsKit  = juce::jlimit (0, 4, kitBox.getSelectedId() - 1);
     s.bassVoice = juce::jlimit (0, 3, bassVoiceBox.getSelectedId() - 1);
     s.keysVoice = juce::jlimit (0, 4, keysVoiceBox.getSelectedId() - 1);
+    s.fxVoice   = juce::jlimit (0, 3, fxVoiceBox.getSelectedId() - 1);
     s.form    = juce::jlimit (0, 3, formBox.getSelectedId() - 1);
     s.scale   = juce::jlimit (0, 3, scaleBox.getSelectedId() - 1);
     s.feel    = juce::jlimit (0, 3, feelBox.getSelectedId() - 1);
@@ -1072,7 +1113,8 @@ void SessionUI::resized()
         energyLbl.setBounds (top.removeFromLeft (sx (70)).reduced (0, sx (16)));
         playerMeterBounds = top.removeFromLeft (sx (120)).reduced (sx (2), sx (12));
         bandMeterBounds = top.removeFromLeft (sx (120)).reduced (sx (2), sx (12));
-        midiBtn.setBounds (top.removeFromRight (sx (56)).reduced (sx (4), sx (10)));
+        loadFxBtn.setBounds (top.removeFromRight (sx (78)).reduced (sx (4), sx (10)));
+        midiBtn.setBounds (top.removeFromRight (sx (108)).reduced (sx (4), sx (10)));
         neckBounds = top.reduced (sx (4), sx (6));
         auto lane = h;
         noteLaneLbl.setBounds (lane.removeFromLeft (sx (52)).reduced (sx (2), sx (8)));
@@ -1131,15 +1173,19 @@ void SessionUI::resized()
         mixHead.removeFromLeft (sx (8));
         keysVoiceLbl.setBounds (mixHead.removeFromLeft (sx (36)).reduced (0, sx (6)));
         keysVoiceBox.setBounds (mixHead.removeFromLeft (sx (88)).reduced (sx (2), sx (2)));
+        mixHead.removeFromLeft (sx (8));
+        fxVoiceLbl.setBounds (mixHead.removeFromLeft (sx (24)).reduced (0, sx (6)));
+        fxVoiceBox.setBounds (mixHead.removeFromLeft (sx (80)).reduced (sx (2), sx (2)));
     }
     {
-        auto sessionMix = mixArea.removeFromRight (sx (320));
-        const int sw = sessionMix.getWidth() / 5;
-        guitarStrip.setBounds (sessionMix.removeFromLeft (sw).reduced (sx (2)));
-        drumsStrip.setBounds  (sessionMix.removeFromLeft (sw).reduced (sx (2)));
-        bassStrip.setBounds   (sessionMix.removeFromLeft (sw).reduced (sx (2)));
-        keysStrip.setBounds   (sessionMix.removeFromLeft (sw).reduced (sx (2)));
-        masterStrip.setBounds (sessionMix.reduced (sx (2)));
+        auto sessionMix = mixArea.removeFromRight (sx (360));
+        const int sw = sessionMix.getWidth() / 6;
+        guitarStrip.setBounds (sessionMix.removeFromLeft (sw).reduced (sx (1)));
+        drumsStrip.setBounds  (sessionMix.removeFromLeft (sw).reduced (sx (1)));
+        bassStrip.setBounds   (sessionMix.removeFromLeft (sw).reduced (sx (1)));
+        keysStrip.setBounds   (sessionMix.removeFromLeft (sw).reduced (sx (1)));
+        fxStrip.setBounds     (sessionMix.removeFromLeft (sw).reduced (sx (1)));
+        masterStrip.setBounds (sessionMix.reduced (sx (1)));
 
         const int dw = mixArea.getWidth() / Daw::kNumTracks;
         for (int i = 0; i < Daw::kNumTracks; ++i)
@@ -1186,16 +1232,18 @@ void SessionUI::timerCallback()
 
     juce::String bpmText = "BPM  ";
     bpmText << juce::String (an.getBpm(), 0);
-    if (an.isBpmLocked())
+    if (an.isLockTempo())
         bpmText << "  LOCKED";
     else if (an.isAutoBpm())
-        bpmText << "  hunting";
+        bpmText << (an.isBpmConfident() ? "  FOLLOWING" : "  hunting");
     else
         bpmText << "  MANUAL";
     bpmReadout.setText (bpmText, juce::dontSendNotification);
     bpmReadout.setColour (juce::Label::textColourId,
-                          an.isBpmLocked() ? juce::Colour (SessionLookAndFeel::kLocked)
-                                           : (an.isAutoBpm() ? juce::Colour (SessionLookAndFeel::kHunt)
+                          an.isLockTempo() ? juce::Colour (SessionLookAndFeel::kLocked)
+                                           : (an.isAutoBpm() ? (an.isBpmConfident()
+                                                                ? juce::Colour (SessionLookAndFeel::kLocked)
+                                                                : juce::Colour (SessionLookAndFeel::kHunt))
                                                              : juce::Colour (SessionLookAndFeel::kText)));
 
     const float hz = an.getFrequencyHz();
@@ -1250,6 +1298,7 @@ void SessionUI::timerCallback()
     drumsStrip.setPeak  (proc.getBusPeak (SessionProcessor::Drums));
     bassStrip.setPeak   (proc.getBusPeak (SessionProcessor::Bass));
     keysStrip.setPeak   (proc.getBusPeak (SessionProcessor::Keys));
+    fxStrip.setPeak     (proc.getBusPeak (SessionProcessor::Fx));
     masterStrip.setPeak (proc.getBusPeak (SessionProcessor::Master));
 
     auto& daw = proc.getDaw();
@@ -1393,9 +1442,9 @@ void SessionUI::exportPlayerMidi()
         proc.getDaw().getProject().name + "-notes.mid");
     const auto err = proc.getAnalyzer().exportMidi (dest);
     if (err.isNotEmpty())
-        juce::NativeMessageBox::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "MIDI", err);
+        juce::NativeMessageBox::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Export MIDI", err);
     else
-        recPath.setText ("MIDI  " + dest.getFullPathName(), juce::dontSendNotification);
+        recPath.setText ("Export MIDI  " + dest.getFullPathName(), juce::dontSendNotification);
 }
 
 PluginRack& SessionUI::selectedTrackRack()

@@ -18,6 +18,7 @@ public:
     static constexpr juce::uint32 kDrums   = 0xffc45c8a;
     static constexpr juce::uint32 kBass    = 0xff5b8def;
     static constexpr juce::uint32 kKeys    = 0xff9b7ae8;
+    static constexpr juce::uint32 kFx      = 0xffe07a4a;
     static constexpr juce::uint32 kLocked  = 0xff2ec4a7;
     static constexpr juce::uint32 kHunt    = 0xffe8a23a;
 

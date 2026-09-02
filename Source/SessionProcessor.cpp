@@ -4,7 +4,7 @@
 
 const char* SessionProcessor::busName (int bus)
 {
-    static const char* n[] = { "Guitar", "Drums", "Bass", "Keys", "Master" };
+    static const char* n[] = { "Guitar", "Drums", "Bass", "Keys", "FX", "Master" };
     if (bus < 0 || bus >= NumBuses) return "?";
     return n[bus];
 }
@@ -15,6 +15,7 @@ SessionProcessor::SessionProcessor()
     level[(size_t) Drums].store  (0.70f);
     level[(size_t) Bass].store   (0.78f);
     level[(size_t) Keys].store   (0.52f);
+    level[(size_t) Fx].store     (0.62f);
     level[(size_t) Master].store (0.90f);
     for (auto& m : mute) m.store (0);
     for (auto& s : solo) s.store (0);
@@ -28,7 +29,9 @@ void SessionProcessor::prepare (double sr, int samplesPerBlock, int)
 
     amp.prepare (sampleRate, maxBlock);
     fx.prepare (sampleRate, maxBlock);
-    band.prepare (sampleRate);
+    samples.prepare (sampleRate);
+    fxChair.prepare (sampleRate, &samples);
+    band.prepare (sampleRate, &samples);
     arrangement.prepare (sampleRate);
     analyzer.prepare (sampleRate);
     writer.prepare (sampleRate);
@@ -51,7 +54,7 @@ void SessionProcessor::prepare (double sr, int samplesPerBlock, int)
     };
     alloc (inMono); alloc (gL); alloc (gR);
     alloc (dL); alloc (dR); alloc (bL); alloc (bR);
-    alloc (kL); alloc (kR); alloc (mL); alloc (mR);
+    alloc (kL); alloc (kR); alloc (fL); alloc (fR); alloc (mL); alloc (mR);
 
     gateEnv = 0.0f;
     gateOpenState = false;
@@ -156,14 +159,17 @@ float SessionProcessor::busGain (int bus) const noexcept
     return level[(size_t) bus].load (std::memory_order_relaxed);
 }
 
-void SessionProcessor::setBandRoster (bool drums, bool bass, bool keys) noexcept
+void SessionProcessor::setBandRoster (bool drums, bool bass, bool keys, bool fxOn) noexcept
 {
     band.setMemberEnabled (FollowerBand::MemberDrums, drums);
     band.setMemberEnabled (FollowerBand::MemberBass,  bass);
     band.setMemberEnabled (FollowerBand::MemberKeys,  keys);
+    band.setMemberEnabled (FollowerBand::MemberFx,    fxOn);
+    fxChair.setEnabled (fxOn);
     setBusMute (Drums, ! drums);
     setBusMute (Bass,  ! bass);
     setBusMute (Keys,  ! keys);
+    setBusMute (Fx,    ! fxOn);
     auto& tracks = daw.getProject().tracks;
     tracks[(size_t) Daw::kDrums].mute.store (drums ? 0 : 1, std::memory_order_relaxed);
     tracks[(size_t) Daw::kBass].mute.store  (bass  ? 0 : 1, std::memory_order_relaxed);
@@ -180,7 +186,8 @@ void SessionProcessor::applyJamSetup (const SessionSettings::Setup& s) noexcept
     band.setScale ((FollowerBand::Scale) juce::jlimit (0, (int) FollowerBand::Scale::NumScales - 1, s.scale));
     band.setFeel  ((FollowerBand::Feel)  juce::jlimit (0, (int) FollowerBand::Feel::NumFeels - 1, s.feel));
     band.setPhraseBars (s.phraseBars);
-    setBandRoster (s.drumsIn, s.bassIn, s.keysIn);
+    setBandRoster (s.drumsIn, s.bassIn, s.keysIn, s.fxIn);
+    fxChair.setVoice ((FxChair::Voice) juce::jlimit (0, (int) FxChair::Voice::NumVoices - 1, s.fxVoice));
 
     if (s.followKey)
     {
@@ -214,7 +221,9 @@ void SessionProcessor::applyJamSetup (const SessionSettings::Setup& s) noexcept
 
 void SessionProcessor::startSession()
 {
+    samples.scanUserFx();
     band.reset();
+    fxChair.reset();
     analyzer.resetEngage();
     band.setEnabled (false);
     waitingNotes.store (0, std::memory_order_relaxed);
@@ -570,6 +579,14 @@ void SessionProcessor::processDuplex (const float* const* inChannels, int numIns
                   bL.data(), bR.data(),
                   kL.data(), kR.data(),
                   n);
+    fxChair.process (band.getStepInBar(),
+                     band.getAbsBarIndex(),
+                     band.getPhraseBars(),
+                     band.isFillBar(),
+                     band.isCrashDownbeat(),
+                     bandEnergy.load (std::memory_order_relaxed),
+                     fL.data(), fR.data(),
+                     n);
 
     daw.process (gL.data(), gR.data(),
                  dL.data(), dR.data(),
@@ -586,16 +603,24 @@ void SessionProcessor::processDuplex (const float* const* inChannels, int numIns
     const float gD = busGain (Drums);
     const float gB = busGain (Bass);
     const float gK = busGain (Keys);
+    const float gF = busGain (Fx);
     const float gM = busGain (Master);
 
     juce::ignoreUnused (gG, gD, gB, gK, gM);
-    float pG = 0, pD = 0, pB = 0, pK = 0, peakOut = 0.0f;
+    float pG = 0, pD = 0, pB = 0, pK = 0, pF = 0, peakOut = 0.0f;
     for (int i = 0; i < n; ++i)
     {
+        const float fl = fL[(size_t) i] * gF;
+        const float fr = fR[(size_t) i] * gF;
+        fL[(size_t) i] = fl;
+        fR[(size_t) i] = fr;
+        mL[(size_t) i] += fl;
+        mR[(size_t) i] += fr;
         pG = juce::jmax (pG, std::abs (gL[(size_t) i]), std::abs (gR[(size_t) i]));
         pD = juce::jmax (pD, std::abs (dL[(size_t) i]), std::abs (dR[(size_t) i]));
         pB = juce::jmax (pB, std::abs (bL[(size_t) i]), std::abs (bR[(size_t) i]));
         pK = juce::jmax (pK, std::abs (kL[(size_t) i]), std::abs (kR[(size_t) i]));
+        pF = juce::jmax (pF, std::abs (fl), std::abs (fr));
         peakOut = juce::jmax (peakOut, std::abs (mL[(size_t) i]), std::abs (mR[(size_t) i]));
     }
 
@@ -610,6 +635,7 @@ void SessionProcessor::processDuplex (const float* const* inChannels, int numIns
     smoothPeak (Drums,  pD);
     smoothPeak (Bass,   pB);
     smoothPeak (Keys,   pK);
+    smoothPeak (Fx,     pF);
     smoothPeak (Master, peakOut);
     outputPeak.store (outputPeak.load (std::memory_order_relaxed) * 0.6f + peakOut * 0.4f,
                       std::memory_order_relaxed);
@@ -618,6 +644,7 @@ void SessionProcessor::processDuplex (const float* const* inChannels, int numIns
                  dL.data(), dR.data(),
                  bL.data(), bR.data(),
                  kL.data(), kR.data(),
+                 fL.data(), fR.data(),
                  mL.data(), mR.data(),
                  n);
 

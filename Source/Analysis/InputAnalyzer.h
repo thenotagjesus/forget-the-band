@@ -40,6 +40,7 @@ public:
     float getRms()         const noexcept { return rmsAtom.load (std::memory_order_relaxed); }
     bool  isKeyLocked()    const noexcept { return keyLocked.load (std::memory_order_relaxed) != 0; }
     bool  isBpmLocked()    const noexcept { return bpmLocked.load (std::memory_order_relaxed) != 0; }
+    bool  isBpmConfident() const noexcept { return bpmConfident.load (std::memory_order_relaxed) != 0; }
     bool  hasEngaged()     const noexcept { return engaged.load (std::memory_order_relaxed) != 0; }
     float getFit()         const noexcept { return fitAtom.load (std::memory_order_relaxed); }
     bool  isCalibrated()   const noexcept { return calibrated.load (std::memory_order_relaxed) != 0; }
@@ -94,6 +95,7 @@ private:
     float detectYin (const float* x, int n, float& conf) noexcept;
     void updateKey (float hz, float conf, float rms) noexcept;
     void updateTempo (float rms, int n) noexcept;
+    void pushIoi (float sec) noexcept;
     void maybeLock() noexcept;
     void emitNote (float hz, float conf, float rms) noexcept;
     void pushMidi (juce::uint8 status, juce::uint8 note, juce::uint8 vel) noexcept;
@@ -127,13 +129,14 @@ private:
     std::atomic<float> rmsAtom { 0.0f };
     std::atomic<float> fitAtom { 1.0f };
     std::atomic<int>   keyLocked { 0 };
-    std::atomic<int>   bpmLocked { 1 };
+    std::atomic<int>   bpmLocked { 0 };
     std::atomic<int>   autoKey { 1 };
-    std::atomic<int>   autoBpm { 0 };
-    std::atomic<int>   lockTempo { 1 };
+    std::atomic<int>   autoBpm { 1 };
+    std::atomic<int>   lockTempo { 0 };
     std::atomic<int>   lockIntensity { 0 };
     std::atomic<int>   energyDrift { 0 };
     std::atomic<int>   engaged { 0 };
+    std::atomic<int>   bpmConfident { 0 };
     std::atomic<int>   calibrated { 0 };
     std::atomic<int>   scaleMask { 0x4A9 };
     std::atomic<float> calSoft { 0.02f };
@@ -153,7 +156,8 @@ private:
     float lastEnergy = 0.0f;
     float fluxAvg = 0.0f;
     double samplesSinceOnset = 1.0e9;
-    std::array<float, 12> ioiSec {};
+    double lastNoteOnSec = -1.0;
+    std::array<float, 8> ioiSec {};
     int ioiCount = 0;
     int ioiWrite = 0;
     float bpmSmoothed = 112.0f;

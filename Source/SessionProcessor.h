@@ -5,6 +5,8 @@
 #include "DSP/FollowerBand.h"
 #include "DSP/Arrangement.h"
 #include "DSP/GuitarFx.h"
+#include "DSP/SampleBank.h"
+#include "DSP/FxChair.h"
 #include "Analysis/InputAnalyzer.h"
 #include "Recording/StemWriter.h"
 #include "Plugins/PluginHost.h"
@@ -25,6 +27,7 @@ public:
         Drums,
         Bass,
         Keys,
+        Fx,
         Master,
         NumBuses
     };
@@ -47,6 +50,8 @@ public:
 
     AmpCab&        getAmp()      noexcept { return amp; }
     GuitarFx&      getFx()       noexcept { return fx; }
+    FxChair&       getFxChair()  noexcept { return fxChair; }
+    SampleBank&    getSamples()  noexcept { return samples; }
     FollowerBand&  getBand()     noexcept { return band; }
     Arrangement&   getArrangement() noexcept { return arrangement; }
     InputAnalyzer& getAnalyzer() noexcept { return analyzer; }
@@ -84,7 +89,7 @@ public:
 
     void startSession();
     void stopSession();
-    void setBandRoster (bool drums, bool bass, bool keys) noexcept;
+    void setBandRoster (bool drums, bool bass, bool keys, bool fx = true) noexcept;
     void applyJamSetup (const SessionSettings::Setup& setup) noexcept;
     bool isSessionRunning() const noexcept { return sessionRunning.load (std::memory_order_relaxed) != 0; }
     bool isWaitingForNotes() const noexcept { return waitingNotes.load (std::memory_order_relaxed) != 0; }
@@ -120,6 +125,8 @@ private:
     DawEngine daw { host };
     AmpCab amp;
     GuitarFx fx;
+    SampleBank samples;
+    FxChair fxChair;
     FollowerBand band;
     Arrangement arrangement;
     InputAnalyzer analyzer;
@@ -148,7 +155,7 @@ private:
     int maxBlock = 512;
 
     std::vector<float> inMono;
-    std::vector<float> gL, gR, dL, dR, bL, bR, kL, kR, mL, mR;
+    std::vector<float> gL, gR, dL, dR, bL, bR, kL, kR, fL, fR, mL, mR;
 
     std::atomic<float> inputPeak  { 0 };
     std::atomic<float> outputPeak { 0 };

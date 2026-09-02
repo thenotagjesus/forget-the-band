@@ -85,8 +85,8 @@ private:
     juce::Label brand, product, keyReadout, bpmReadout, barReadout, recPath;
     juce::Label tunerNote, recTime, projectLbl;
     juce::ComboBox styleBox, keyBox, formBox, scaleBox, feelBox, phraseBox, delayDivBox;
-    juce::ComboBox kitBox, bassVoiceBox, keysVoiceBox;
-    juce::Label kitLbl, bassVoiceLbl, keysVoiceLbl;
+    juce::ComboBox kitBox, bassVoiceBox, keysVoiceBox, fxVoiceBox;
+    juce::Label kitLbl, bassVoiceLbl, keysVoiceLbl, fxVoiceLbl;
     juce::ToggleButton autoKey { "Auto Key" }, autoBpm { "Auto BPM" }, countInToggle { "Count-in" };
     juce::ToggleButton lockTempo { "Lock Tempo" }, lockIntensity { "Lock Intensity" };
     juce::ToggleButton grooveFloor { "Keep Groove" }, fadeSilence { "Fade on rest" };
@@ -104,7 +104,8 @@ private:
     juce::TextButton recordBtn { "Record" }, audioBtn { "Audio" };
     juce::TextButton playBtn { "Play" }, rtzBtn { "RTZ" }, cycleBtn { "Cycle" };
     juce::TextButton newBtn { "New" }, openBtn { "Open" }, saveBtn { "Save" };
-    juce::TextButton bounceBtn { "Bounce" }, undoBtn { "Undo" }, midiBtn { "MIDI" };
+    juce::TextButton bounceBtn { "Bounce" }, undoBtn { "Undo" }, midiBtn { "Export MIDI" };
+    juce::TextButton loadFxBtn { "Load FX" };
     juce::TextButton viewArrange { "Arrange" }, viewMixer { "Mixer" };
     juce::ToggleButton ampBypass { "Amp Bypass" };
     juce::TextButton scanBtn { "Scan VST3" };
@@ -114,6 +115,7 @@ private:
     MixerStrip drumsStrip  { "Drums",  juce::Colour (SessionLookAndFeel::kDrums)  };
     MixerStrip bassStrip   { "Bass",   juce::Colour (SessionLookAndFeel::kBass)   };
     MixerStrip keysStrip   { "Keys",   juce::Colour (SessionLookAndFeel::kKeys)   };
+    MixerStrip fxStrip     { "FX",     juce::Colour (SessionLookAndFeel::kFx)     };
     MixerStrip masterStrip { "Master", juce::Colour (SessionLookAndFeel::kAccent) };
 
     std::array<std::unique_ptr<MixerStrip>, Daw::kNumTracks> dawStrips;

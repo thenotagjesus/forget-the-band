@@ -18,14 +18,17 @@ Built with JUCE 8.0.8 (FetchContent, C++20). Windows-first desktop app. Version 
   voicing (no IR files) → tempo-sync delay → hall-ish reverb send
 - Tuner: nearest note + cents needle from the analysis thread
 - Follower band: **Rock, Blues, Metal, Funk, Jazz** — original synthesized patterns
-- Each seated member has a voice picker (kit / bass / keys), independent of jam Style
+- Four lobby chairs: Drums, Bass, Keys, **FX** (sampler + SFX). Empty chairs are silent.
+- Each seated member has a voice picker (kit / bass / keys / FX Auto·Hits·Risers·Foley), independent of jam Style
 - Bar-aware drum fills every 8 bars (extra fills at high intensity) + crash on the next downbeat
-- Intensity raises hat density, fill chance, bass motion, and key velocity
-- Auto key + BPM with manual override; auto-lock after a few stable bars
-  (UI shows **LOCKED** vs **hunting**)
+- Intensity raises hat density, fill chance, bass motion, key velocity, and FX spice
+- **Auto BPM follows the player until you press Lock Tempo.** It never auto-freezes mid-jam.
+  Landing **Follow tempo** (was Slew) seeds BPM then keeps slewing. Key auto-lock can still engage.
+- **Export MIDI** writes the named-note transcription as a Standard MIDI `.mid` file
+- CC0 one-shots under `Assets/Samples/` (BushDrum, Kenney Impact/Sci-Fi, original DSP) with synth fallback
 - Optional 4-beat count-in click on Start Session (band silent until it finishes; default on)
-- Mixer: level / mute / solo / live peak meter for Guitar, Drums, Bass, Keys, Master
-- Stem recording: one WAV per bus plus stereo master, 32-bit float; elapsed mm:ss + REC pulse
+- Mixer: level / mute / solo / live peak meter for Guitar, Drums, Bass, Keys, FX, Master
+- Stem recording: one WAV per bus plus stereo master (including `fx.wav`), 32-bit float; elapsed mm:ss + REC pulse
 - Bar counter (`1.1`, `1.2`, …)
 - Audio device picker (`AudioDeviceSelectorComponent`); WASAPI always; ASIO optional
 - Persists last audio device + buffer, and UI (style, auto key/BPM, amp/FX knobs, bus levels)
@@ -44,8 +47,8 @@ Built with JUCE 8.0.8 (FetchContent, C++20). Windows-first desktop app. Version 
     │
     ├── gain → gate → AmpCab → delay → space ── guitar bus
     │
-    └── FollowerBand (audio thread, reads atomics)
-           drums / bass / keys  (silent during count-in)
+    └── FollowerBand + FxChair (audio thread, reads atomics)
+           drums / bass / keys / fx  (silent during count-in)
                 │
                 ▼
            Mixer (mute/solo/level + per-bus peaks)
@@ -61,11 +64,12 @@ into a second lock-free FIFO. Delay and reverb buffers are allocated in `prepare
 
 **Analysis thread** drains the input FIFO, runs YIN + chroma + onset tracking,
 and stores results in `std::atomic` fields. After a few bars of a stable key
-and a stable pulse the auto-lock engages so the band does not wander mid-jam.
-Manual key/BPM overrides bypass auto entirely.
+the key auto-lock can engage. **BPM never auto-locks** — Auto BPM keeps slewing
+from note-on times and flux onsets until **Lock Tempo** is on. Manual key/BPM
+overrides bypass auto entirely.
 
 **Stem writer thread** drains the record FIFO and writes 32-bit float WAVs.
-Start and stop are atomic across all buses: guitar, drums, bass, keys, master.
+Start and stop are atomic across all buses: guitar, drums, bass, keys, fx, master.
 
 Default device hint: 44.1 kHz, buffer **128** samples (falls back to **256**).
 Last device and buffer size are restored from
@@ -92,7 +96,7 @@ VST3 host: scan on a worker thread, dead-man's pedal, `suspendProcessing` before
 
 Two views in one window:
 
-- **Live band** — set Style, Form (Vamp / Song / 12-Bar / Wander), Scale, Tempo, Feel (Grid / Ahead / Behind / Swing), then **Start**. The band stays silent until your first notes, then count-in (optional) and groove. **Keep Groove** (default on) holds a floor so rests do not kill the kit. **Lock Tempo** is on by default. Dual meters: You vs Band (band lags). Chord name + Roman + next-chord telegraph + 2D neck (filled chord tones, outlined scale tones).
+- **Live band** — set Style, Form (Vamp / Song / 12-Bar / Wander), Scale, Tempo, Feel (Grid / Ahead / Behind / Swing), then **Start**. Count-in (optional) then groove. **Auto BPM** follows until **Lock Tempo**. **Keep Groove** (default on) holds a floor so rests do not kill the kit. Dual meters: You vs Band (band lags). Chord name + Roman + next-chord telegraph + 2D neck. **Export MIDI** saves the notes you played as a `.mid`.
 - **Arrange** — 8 audio tracks + Drums/Bass/Keys + Master. Play / Stop / Record / RTZ / Cycle. Record writes 32-bit float takes into `Documents/Centrophy/ForgetTheBand/projects/<name>/`. New / Open / Save / Bounce. Per-track 4 VST3 inserts. Undo for clip move/delete.
 
 Projects: `Documents/Centrophy/ForgetTheBand/projects/<name>/project.xml` + `audio/`.
@@ -187,6 +191,7 @@ with the same start and stop:
 | `drums.wav`   | Drum bus              |
 | `bass.wav`    | Bass bus              |
 | `keys.wav`    | Harmonic pad / keys   |
+| `fx.wav`      | Sampler / SFX chair   |
 | `master.wav`  | Stereo mix            |
 
 Format: **32-bit float WAV** at the device sample rate. A `session.txt` sidecar
@@ -203,11 +208,23 @@ The path, elapsed `mm:ss`, and a pulsing REC indicator are shown while armed.
 ## Playing
 
 1. Connect a guitar (or any line/mic input). Open **Audio** and pick the device.
-2. Choose a style (Rock / Blues / Metal / Funk / Jazz). Leave Key and BPM on **Auto**, or set them.
+2. Seat Drums / Bass / Keys / FX in the lobby. Leave **Follow tempo** on so Auto BPM tracks you; turn it off (or press **Lock Tempo** in the session) to freeze BPM.
 3. Set Gain / Gate so the tuner locks a note; tweak Drive / Tone / Delay / Space.
 4. **Start Session** — optional 4-beat count-in, then the band enters on the next downbeat.
-5. Play. Intensity (hats, fills, bass motion) tracks how busy/loud you are.
-6. **Record** if you want stems (elapsed time is on the transport). **Stop** ends the jam.
+5. Play. Intensity (hats, fills, bass motion, FX spice) tracks how busy/loud you are.
+6. **Export MIDI** to save the named-note transcription as a `.mid`. Drop extra one-shots in `Documents/Centrophy/ForgetTheBand/samples/fx` and hit **Load FX**.
+7. **Record** if you want stems (elapsed time is on the transport). **Stop** ends the jam.
+
+## Samples (CC0)
+
+Bundled one-shots live in `Assets/Samples/` (about 1 MB). See `Assets/Samples/LICENSE.txt`
+for source URLs. All files are **CC0 / public domain**:
+
+- BushDrum LinnDrum kit (funk/metal hits + crash) — https://github.com/EwonRael/BushDrum
+- Kenney Impact Sounds + Sci-Fi Sounds — https://kenney.nl/assets/impact-sounds , https://kenney.nl/assets/sci-fi-sounds
+- Original DSP acoustic kick/snare/hat, bass pluck, piano hammer — CC0 by Centrophy
+
+User FX drops: `Documents/Centrophy/ForgetTheBand/samples/fx/*.wav` (scanned on Start Session and **Load FX**). Missing files fall back to the synthesized voices. Other notes are pitch-shifted by simple resampling (no 88-key pianos).
 
 ## License
 

@@ -31,7 +31,7 @@ private:
     class ChairCard : public juce::Component
     {
     public:
-        enum Kind { Drums, Bass, Keys };
+        enum Kind { Drums, Bass, Keys, Fx };
 
         ChairCard (Kind k, juce::Colour accent);
         void paint (juce::Graphics& g) override;
@@ -66,13 +66,14 @@ private:
     ChairCard drumsCard { ChairCard::Drums, juce::Colour (SessionLookAndFeel::kDrums) };
     ChairCard bassCard  { ChairCard::Bass,  juce::Colour (SessionLookAndFeel::kBass)  };
     ChairCard keysCard  { ChairCard::Keys,  juce::Colour (SessionLookAndFeel::kKeys)  };
-    juce::ComboBox drumsKitBox, bassVoiceBox, keysVoiceBox;
+    ChairCard fxCard    { ChairCard::Fx,    juce::Colour (SessionLookAndFeel::kFx)    };
+    juce::ComboBox drumsKitBox, bassVoiceBox, keysVoiceBox, fxVoiceBox;
     int lastStyleForSuggest = 0;
 
     juce::Label styleLbl, formLbl, scaleLbl, feelLbl, keyLbl, bpmLbl;
     juce::ComboBox styleBox, formBox, scaleBox, feelBox, keyBox;
     juce::ToggleButton lockKey { "Lock key" };
-    juce::ToggleButton slewToggle { "Slew" };
+    juce::ToggleButton slewToggle { "Follow tempo" };
     juce::Slider bpmSlider;
     juce::TextButton enterBtn { "ENTER SESSION" };
     juce::TextButton audioBtn { "Audio" };

@@ -49,6 +49,16 @@ file(GLOB_RECURSE SESSION_SOURCES CONFIGURE_DEPENDS
 
 target_sources(Session PRIVATE ${SESSION_SOURCES})
 
+file(GLOB_RECURSE SESSION_SAMPLES
+    "${CMAKE_CURRENT_SOURCE_DIR}/Assets/Samples/*.wav")
+if(SESSION_SAMPLES)
+    juce_add_binary_data(SessionSamples
+        HEADER_NAME SessionSamples.h
+        NAMESPACE SessionSamples
+        SOURCES ${SESSION_SAMPLES})
+    set_target_properties(SessionSamples PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endif()
+
 target_include_directories(Session
     PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/Source"
@@ -132,6 +142,10 @@ target_link_libraries(Session
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags
 )
+
+if(TARGET SessionSamples)
+    target_link_libraries(Session PRIVATE SessionSamples)
+endif()
 
 if(MSVC)
     target_compile_options(Session PRIVATE /W4 /permissive- /Zc:__cplusplus)

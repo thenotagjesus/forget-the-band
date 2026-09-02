@@ -1,5 +1,6 @@
 #include "UI/LandingScreen.h"
 #include "SessionProcessor.h"
+#include "DSP/FxChair.h"
 
 LandingScreen::ChairCard::ChairCard (Kind k, juce::Colour acc)
     : kind (k), accent (acc)
@@ -40,7 +41,7 @@ void LandingScreen::ChairCard::drawGlyph (juce::Graphics& g, juce::Rectangle<flo
         g.fillRoundedRectangle (body, 10.0f);
         g.fillRect (body.getRight() - 8.0f, body.getCentreY() - 4.0f, r.getWidth() * 0.16f, 8.0f);
     }
-    else
+    else if (kind == Keys)
     {
         auto keys = r.reduced (r.getWidth() * 0.12f, r.getHeight() * 0.32f);
         g.fillRoundedRectangle (keys, 3.0f);
@@ -54,6 +55,19 @@ void LandingScreen::ChairCard::drawGlyph (juce::Graphics& g, juce::Rectangle<flo
             const float x = keys.getX() + kw * ((float) i + 0.65f);
             g.fillRect (x, keys.getY() + 3.0f, kw * 0.55f, keys.getHeight() * 0.58f);
         }
+    }
+    else // Fx
+    {
+        auto c = r.getCentre();
+        juce::Path bolt;
+        bolt.startNewSubPath (c.x + 6.0f, c.y - 18.0f);
+        bolt.lineTo (c.x - 4.0f, c.y - 2.0f);
+        bolt.lineTo (c.x + 2.0f, c.y - 2.0f);
+        bolt.lineTo (c.x - 6.0f, c.y + 18.0f);
+        bolt.lineTo (c.x + 4.0f, c.y + 2.0f);
+        bolt.lineTo (c.x - 2.0f, c.y + 2.0f);
+        bolt.closeSubPath();
+        g.fillPath (bolt);
     }
 }
 
@@ -74,7 +88,7 @@ void LandingScreen::ChairCard::paint (juce::Graphics& g)
     }
 
     auto inner = r.reduced (16.0f);
-    const char* name = kind == Drums ? "DRUMS" : (kind == Bass ? "BASS" : "KEYS");
+    const char* name = kind == Drums ? "DRUMS" : (kind == Bass ? "BASS" : (kind == Keys ? "KEYS" : "FX"));
     g.setColour (seated ? juce::Colour (SessionLookAndFeel::kText)
                         : juce::Colour (SessionLookAndFeel::kMuted));
     g.setFont (juce::Font (juce::FontOptions (22.0f)).boldened());
@@ -125,11 +139,13 @@ LandingScreen::LandingScreen (SessionProcessor& processor)
     bindChair (drumsCard);
     bindChair (bassCard);
     bindChair (keysCard);
+    bindChair (fxCard);
 
     fillVoiceBoxes();
     addAndMakeVisible (drumsKitBox);
     addAndMakeVisible (bassVoiceBox);
     addAndMakeVisible (keysVoiceBox);
+    addAndMakeVisible (fxVoiceBox);
 
     styleLbl.setText ("Style", juce::dontSendNotification);
     formLbl.setText ("Form", juce::dontSendNotification);
@@ -207,6 +223,7 @@ LandingScreen::LandingScreen (SessionProcessor& processor)
     drumsKitBox.onChange  = persist;
     bassVoiceBox.onChange = persist;
     keysVoiceBox.onChange = persist;
+    fxVoiceBox.onChange    = persist;
 
     loadSettings();
     applyFonts();
@@ -231,10 +248,12 @@ void LandingScreen::setSetup (const SessionSettings::Setup& s)
     drumsCard.setSeated (s.drumsIn);
     bassCard.setSeated (s.bassIn);
     keysCard.setSeated (s.keysIn);
+    fxCard.setSeated (s.fxIn);
     styleBox.setSelectedId (s.style + 1, juce::dontSendNotification);
     drumsKitBox.setSelectedId  (s.drumsKit  + 1, juce::dontSendNotification);
     bassVoiceBox.setSelectedId (s.bassVoice + 1, juce::dontSendNotification);
     keysVoiceBox.setSelectedId (s.keysVoice + 1, juce::dontSendNotification);
+    fxVoiceBox.setSelectedId   (s.fxVoice   + 1, juce::dontSendNotification);
     lastStyleForSuggest = s.style;
     formBox.setSelectedId  (s.form + 1, juce::dontSendNotification);
     scaleBox.setSelectedId (s.scale + 1, juce::dontSendNotification);
@@ -252,10 +271,12 @@ SessionSettings::Setup LandingScreen::getSetup() const
     s.drumsIn = drumsCard.isSeated();
     s.bassIn  = bassCard.isSeated();
     s.keysIn  = keysCard.isSeated();
+    s.fxIn    = fxCard.isSeated();
     s.style   = juce::jlimit (0, 4, styleBox.getSelectedId() - 1);
     s.drumsKit  = juce::jlimit (0, 4, drumsKitBox.getSelectedId()  - 1);
     s.bassVoice = juce::jlimit (0, 3, bassVoiceBox.getSelectedId() - 1);
     s.keysVoice = juce::jlimit (0, 4, keysVoiceBox.getSelectedId() - 1);
+    s.fxVoice   = juce::jlimit (0, 3, fxVoiceBox.getSelectedId()   - 1);
     s.form    = juce::jlimit (0, 3, formBox.getSelectedId() - 1);
     s.scale   = juce::jlimit (0, 3, scaleBox.getSelectedId() - 1);
     s.feel    = juce::jlimit (0, 3, feelBox.getSelectedId() - 1);
@@ -285,6 +306,10 @@ void LandingScreen::fillVoiceBoxes()
     drumsKitBox.setSelectedId (1, juce::dontSendNotification);
     bassVoiceBox.setSelectedId (1, juce::dontSendNotification);
     keysVoiceBox.setSelectedId (1, juce::dontSendNotification);
+    fxVoiceBox.clear (juce::dontSendNotification);
+    for (int i = 0; i < (int) FxChair::Voice::NumVoices; ++i)
+        fxVoiceBox.addItem (FxChair::voiceName (i), i + 1);
+    fxVoiceBox.setSelectedId (1, juce::dontSendNotification);
 }
 
 void LandingScreen::suggestVoicesFromStyle (int style, bool force)
@@ -314,7 +339,8 @@ void LandingScreen::refreshRosterLabel()
 {
     int n = (drumsCard.isSeated() ? 1 : 0)
           + (bassCard.isSeated()  ? 1 : 0)
-          + (keysCard.isSeated()  ? 1 : 0);
+          + (keysCard.isSeated()  ? 1 : 0)
+          + (fxCard.isSeated()    ? 1 : 0);
     juce::String who;
     auto add = [&who] (bool on, const char* name)
     {
@@ -325,6 +351,7 @@ void LandingScreen::refreshRosterLabel()
     add (drumsCard.isSeated(), "Drums");
     add (bassCard.isSeated(),  "Bass");
     add (keysCard.isSeated(),  "Keys");
+    add (fxCard.isSeated(),    "FX");
     if (n == 0)
         subtitle.setText ("Empty room  —  you solo", juce::dontSendNotification);
     else
@@ -443,25 +470,27 @@ void LandingScreen::resized()
         lockKey.setBounds (row2.removeFromLeft (sx (110)).reduced (sx (2), sx (12)));
         row2.removeFromLeft (sx (10));
         place (row2, bpmLbl, bpmSlider, 280);
-        slewToggle.setBounds (row2.removeFromLeft (sx (90)).reduced (sx (2), sx (12)));
+        slewToggle.setBounds (row2.removeFromLeft (sx (140)).reduced (sx (2), sx (12)));
     }
 
     r.removeFromBottom (sx (12));
     chairsBounds = r;
     {
         auto c = chairsBounds;
-        const int gap = sx (14);
-        const int w = (c.getWidth() - gap * 2) / 3;
+        const int gap = sx (10);
+        const int w = (c.getWidth() - gap * 3) / 4;
         const int comboH = sx (34);
         auto place = [this, comboH] (juce::Rectangle<int> col, ChairCard& card, juce::ComboBox& box)
         {
-            box.setBounds (col.removeFromBottom (comboH).reduced (sx (10), sx (2)));
-            card.setBounds (col.reduced (sx (4)));
+            box.setBounds (col.removeFromBottom (comboH).reduced (sx (8), sx (2)));
+            card.setBounds (col.reduced (sx (3)));
         };
         place (c.removeFromLeft (w), drumsCard, drumsKitBox);
         c.removeFromLeft (gap);
         place (c.removeFromLeft (w), bassCard, bassVoiceBox);
         c.removeFromLeft (gap);
-        place (c, keysCard, keysVoiceBox);
+        place (c.removeFromLeft (w), keysCard, keysVoiceBox);
+        c.removeFromLeft (gap);
+        place (c, fxCard, fxVoiceBox);
     }
 }

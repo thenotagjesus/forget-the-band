@@ -43,16 +43,25 @@ namespace SessionSettings
         return d;
     }
 
+    inline juce::File fxSamplesDir()
+    {
+        auto d = productDir().getChildFile ("samples").getChildFile ("fx");
+        d.createDirectory();
+        return d;
+    }
+
     /** Shared landing + jam setup. Combo ids in xml are 1-based (existing ui.xml). */
     struct Setup
     {
         bool drumsIn = true;
         bool bassIn  = true;
         bool keysIn  = true;
+        bool fxIn    = true;
         int  style   = 0;   // FollowerBand::Style
         int  drumsKit  = 0; // FollowerBand::DrumKit (Acoustic)
         int  bassVoice = 0; // FollowerBand::BassVoice (Finger)
         int  keysVoice = 0; // FollowerBand::KeysVoice (Piano)
+        int  fxVoice   = 0; // FxChair::Voice (Auto)
         int  form    = 1;   // Song / Radio
         int  scale   = 2;   // Pentatonic
         int  feel    = 0;   // Grid
@@ -67,10 +76,12 @@ namespace SessionSettings
             xml.setAttribute ("drumsIn", drumsIn ? 1 : 0);
             xml.setAttribute ("bassIn",  bassIn  ? 1 : 0);
             xml.setAttribute ("keysIn",  keysIn  ? 1 : 0);
+            xml.setAttribute ("fxIn",    fxIn    ? 1 : 0);
             xml.setAttribute ("style",   style + 1);
             xml.setAttribute ("drumsKit",  drumsKit);
             xml.setAttribute ("bassVoice", bassVoice);
             xml.setAttribute ("keysVoice", keysVoice);
+            xml.setAttribute ("fxVoice",   fxVoice);
             xml.setAttribute ("form",    form + 1);
             xml.setAttribute ("scale",   scale + 1);
             xml.setAttribute ("feel",    feel + 1);
@@ -89,10 +100,12 @@ namespace SessionSettings
             s.drumsIn = xml.getIntAttribute ("drumsIn", 1) != 0;
             s.bassIn  = xml.getIntAttribute ("bassIn",  1) != 0;
             s.keysIn  = xml.getIntAttribute ("keysIn",  1) != 0;
+            s.fxIn    = xml.getIntAttribute ("fxIn",    1) != 0;
             s.style   = juce::jlimit (0, 4, xml.getIntAttribute ("style", 1) - 1);
             s.drumsKit  = juce::jlimit (0, 4, xml.getIntAttribute ("drumsKit",  0));
             s.bassVoice = juce::jlimit (0, 3, xml.getIntAttribute ("bassVoice", 0));
             s.keysVoice = juce::jlimit (0, 4, xml.getIntAttribute ("keysVoice", 0));
+            s.fxVoice   = juce::jlimit (0, 3, xml.getIntAttribute ("fxVoice",   0));
             if (! xml.hasAttribute ("drumsKit")
                 && ! xml.hasAttribute ("bassVoice")
                 && ! xml.hasAttribute ("keysVoice"))
