@@ -147,6 +147,17 @@ if(TARGET SessionSamples)
     target_link_libraries(Session PRIVATE SessionSamples)
 endif()
 
+set(_session_pitch_model "${CMAKE_CURRENT_SOURCE_DIR}/Assets/Models/basic_pitch.onnx")
+if(EXISTS "${_session_pitch_model}")
+    juce_add_binary_data(SessionModel
+        HEADER_NAME SessionModel.h
+        NAMESPACE SessionModel
+        SOURCES "${_session_pitch_model}")
+    set_target_properties(SessionModel PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    target_link_libraries(Session PRIVATE SessionModel)
+    target_compile_definitions(Session PRIVATE FTB_HAS_EMBEDDED_PITCH=1)
+endif()
+
 if(MSVC)
     target_compile_options(Session PRIVATE /W4 /permissive- /Zc:__cplusplus)
 else()

@@ -99,3 +99,11 @@ if(EXISTS "${_model}")
             "${_model}" "$<TARGET_FILE_DIR:Session>/basic_pitch.onnx"
         COMMENT "Copy basic_pitch.onnx next to the binary")
 endif()
+
+set(_notice "${CMAKE_CURRENT_SOURCE_DIR}/Assets/Models/NOTICE.txt")
+if(EXISTS "${_notice}")
+    add_custom_command(TARGET Session POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${_notice}" "$<TARGET_FILE_DIR:Session>/NOTICE.txt"
+        COMMENT "Copy Basic Pitch / ONNX Runtime NOTICE next to the binary")
+endif()

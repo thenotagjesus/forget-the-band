@@ -7,6 +7,16 @@
 #include <onnxruntime_cxx_api.h>
 #endif
 
+#if defined(FTB_HAS_EMBEDDED_PITCH) && FTB_HAS_EMBEDDED_PITCH
+ #if __has_include("SessionModel.h")
+  #include "SessionModel.h"
+  #define FTB_PITCH_EMBEDDED 1
+ #endif
+#endif
+#ifndef FTB_PITCH_EMBEDDED
+ #define FTB_PITCH_EMBEDDED 0
+#endif
+
 namespace
 {
     constexpr float kNoteThresh = 0.40f;
@@ -136,6 +146,7 @@ void BasicPitchWorker::run()
         ort->opts.SetInterOpNumThreads (1);
         ort->opts.SetGraphOptimizationLevel (GraphOptimizationLevel::ORT_ENABLE_ALL);
 
+        // Prefer a sidecar so the user can drop a newer nmp.onnx; else embedded bytes.
         const juce::File model = findModelFile();
         if (model.existsAsFile())
         {
@@ -150,6 +161,23 @@ void BasicPitchWorker::run()
 #endif
             available.store (1, std::memory_order_relaxed);
         }
+#if FTB_PITCH_EMBEDDED
+        else
+        {
+            int sz = 0;
+            if (const char* data = SessionModel::getNamedResource ("basic_pitch_onnx", sz))
+            {
+                if (sz > 1024 && data != nullptr)
+                {
+                    ort->session = std::make_unique<Ort::Session> (ort->env,
+                                                                   (const void*) data,
+                                                                   (size_t) sz,
+                                                                   ort->opts);
+                    available.store (1, std::memory_order_relaxed);
+                }
+            }
+        }
+#endif
     }
     catch (...)
     {

@@ -57,13 +57,16 @@ ONNX names from `inference.py`:
 
 Search order at runtime:
 
-1. Next to `ForgetTheBand.exe` (`basic_pitch.onnx`) — CMake copies it here
+1. Next to `ForgetTheBand.exe` (`basic_pitch.onnx`) — CMake copies it here (user can drop a newer model)
 2. `Assets/Models/basic_pitch.onnx` next to the exe
 3. `Documents/Centrophy/ForgetTheBand/models/basic_pitch.onnx`
+4. **Embedded** `Assets/Models/basic_pitch.onnx` via `juce_add_binary_data` (`SessionModel`) if no sidecar
 
-If the file or ORT is missing, `isAvailable()` is false and the worker skips `Run`. No crash.
+If ORT is missing, `isAvailable()` is false and the worker skips `Run`. No crash.
+The sidecar is optional; the 230 KB model is also compiled into the exe.
 
-Source of the weights: [nmp.onnx](https://github.com/spotify/basic-pitch/raw/main/basic_pitch/saved_models/icassp_2022/nmp.onnx) (Apache-2.0). See `Assets/Models/LICENSE.txt`.
+Source of the weights: [nmp.onnx](https://github.com/spotify/basic-pitch/raw/main/basic_pitch/saved_models/icassp_2022/nmp.onnx) (Apache-2.0). See `Assets/Models/LICENSE.txt` and `NOTICE.txt`.
+ONNX Runtime (`onnxruntime.dll`) is MIT (Microsoft). Official prebuilt DLL only; source is not vendored.
 
 ## CMake flags
 
