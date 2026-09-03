@@ -936,7 +936,7 @@ void InputAnalyzer::applyBandState (bool onset, float rms, bool fromBasicPitch) 
     activitySmooth = activitySmooth * 0.80f + act * 0.20f;
     activity.store (activitySmooth, std::memory_order_relaxed);
 
-    if (onset && rms > 0.006f)
+    if (onset && rmsSmooth > 0.012f)
     {
         onsetFlag.store (1, std::memory_order_relaxed);
         if (lockIntensity.load (std::memory_order_relaxed) == 0)

@@ -22,7 +22,7 @@ void Arrangement::resetDefault() noexcept
         }
     };
 
-    fill (sections[0], "Intro", 4, 0,
+    fill (sections[0], "Intro", 4, 2,
           { FollowerBand::DegI, FollowerBand::DegI, FollowerBand::DegI, FollowerBand::DegI });
     fill (sections[1], "Jam", 8, 2,
           { FollowerBand::DegI, FollowerBand::DegbVII, FollowerBand::DegIV, FollowerBand::DegI,
@@ -201,7 +201,8 @@ void Arrangement::tick (const float chroma[12],
 
     // Timing: lock 16th phase to player onsets. Elastic stepAccum, max slew
     // applied by FollowerBand::applyPhaseNudge. Never replace BPM here.
-    if (onset && samplesPer16th > 32.0)
+    // Real pick only — hiss/false aubio onsets must not yank the 16th grid.
+    if (onset && intensity > 0.28f && samplesPer16th > 32.0)
     {
         const double toPrev = stepAccum;
         const double toNext = stepAccum - samplesPer16th;
@@ -210,18 +211,7 @@ void Arrangement::tick (const float chroma[12],
         phaseNudge.store (-nearest, std::memory_order_relaxed);
     }
 
-    int diff = getDifficulty (absBar);
-    if (intensity > 0.75f)
-        diff = juce::jmin (3, diff + 1);
-    if (intensity < 0.22f)
-        diff = juce::jmax (0, diff - 1);
-
-    int mask = 0x1; // drums always if the user enabled them
-    if (diff >= 1)
-        mask |= 0x2; // bass
-    if (diff >= 2)
-        mask |= 0x4; // keys
-    if (diff >= 3)
-        mask = 0x7;
-    thin.store (mask, std::memory_order_relaxed);
+    // User lobby chairs already gate drums/bass/keys via setMemberEnabled.
+    // Difficulty/intensity are a hint only — never mute seated members.
+    thin.store (0x7, std::memory_order_relaxed);
 }

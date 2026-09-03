@@ -25,7 +25,9 @@ bool AubioEngine::prepare (double sampleRate, int hopSize, int winSize)
         return false;
     }
 
-    onset.reset (new_aubio_onset ("hfc", (uint_t) win, (uint_t) hop, sr));
+    onset.reset (new_aubio_onset ("specflux", (uint_t) win, (uint_t) hop, sr));
+    if (onset == nullptr)
+        onset.reset (new_aubio_onset ("hfc", (uint_t) win, (uint_t) hop, sr));
     if (onset == nullptr)
         onset.reset (new_aubio_onset ("default", (uint_t) win, (uint_t) hop, sr));
 
@@ -38,6 +40,9 @@ bool AubioEngine::prepare (double sampleRate, int hopSize, int winSize)
         release();
         return false;
     }
+
+    aubio_onset_set_threshold (onset.get(), 0.35f);
+    aubio_onset_set_minioi_ms (onset.get(), 160.0f);
 
     aubio_pitch_set_unit (pitch.get(), "Hz");
     aubio_pitch_set_silence (pitch.get(), -50.0f);

@@ -857,8 +857,12 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
         else if (inten < 0.9f) keyHit = (step16 == 0 || step16 == 6 || step16 == 12);
         else keyHit = (step16 == 0 || step16 == 4 || step16 == 8 || step16 == 12);
     }
+    else if (st == Style::Rock)
+        keyHit = (step16 == 0 || step16 == 8)
+              || (inten >= 0.6f && step16 == 4)
+              || (inten >= 0.9f && step16 == 12);
     else
-        keyHit = (step16 == 0) || (st == Style::Rock && inten >= 0.6f && step16 == 0);
+        keyHit = (step16 == 0);
 
     if (keyHit)
     {
@@ -1051,8 +1055,8 @@ void FollowerBand::process (int keyPc,
         crashEnv = juce::jmin (crashEnv, 0.70f);
         rideEnv  = juce::jmin (rideEnv,  0.80f);
         tomEnv   = juce::jmin (tomEnv,   1.0f);
-        float dL = kick * 0.95f + sn * 0.62f + hat * 0.14f + crash * 0.18f + ride * 0.22f + tom * 0.55f;
-        float dR = kick * 0.90f + sn * 0.68f + hat * 0.16f + crash * 0.20f + ride * 0.24f + tom * 0.50f;
+        float dL = kick * 0.82f + sn * 0.90f + hat * 0.42f + crash * 0.18f + ride * 0.22f + tom * 0.55f;
+        float dR = kick * 0.78f + sn * 0.94f + hat * 0.44f + crash * 0.20f + ride * 0.24f + tom * 0.50f;
 
         // --- bass ---
         float saw = oscSaw (bassPhase, bassHz);
