@@ -38,12 +38,10 @@ Built with JUCE 8.0.8 (FetchContent, C++20). Windows-first desktop app. Version 
 ```
  guitar in
     │
-    ├── lock-free copy ──► analysis thread
-    │                      YIN pitch / root / cents
-    │                      chroma → coarse key
-    │                      onset IOIs → BPM
-    │                      RMS + onset rate → intensity
-    │                      publishes atomics only
+    ├── AubioEngine (audio thread, hop 512)
+    │      onset / YIN Hz / RMS → atomics immediately
+    │      lock-free ring → Basic Pitch worker (ONNX, 43844 @ 22050)
+    │      worker: chroma / chord / key + IOI tempo lock
     │
     ├── gain → gate → AmpCab → delay → space ── guitar bus
     │
@@ -57,16 +55,20 @@ Built with JUCE 8.0.8 (FetchContent, C++20). Windows-first desktop app. Version 
                 └── stereo master out (+ count-in click)
 ```
 
-**Audio thread** never runs pitch/key/tempo analysis and never touches the
-filesystem. It copies input into a lock-free FIFO, reads analysis atomics,
-renders the amp/FX and band, mixes, and (if armed) pushes interleaved stem planes
-into a second lock-free FIFO. Delay and reverb buffers are allocated in `prepare` only.
+See `Source/Analysis/README.md` for the dual-pipeline tracker, ONNX window
+(43844, not 2048), thread rules, and CMake flags.
 
-**Analysis thread** drains the input FIFO, runs YIN + chroma + onset tracking,
-and stores results in `std::atomic` fields. After a few bars of a stable key
-the key auto-lock can engage. **BPM never auto-locks** — Auto BPM keeps slewing
-from note-on times and flux onsets until **Lock Tempo** is on. Manual key/BPM
-overrides bypass auto entirely.
+**Audio thread** runs aubio `_do` on preallocated objects (no `new_aubio_*`, no
+`Ort::`) and never touches the filesystem. It copies input into a lock-free FIFO
+for Basic Pitch, reads analysis atomics, renders the amp/FX and band, mixes, and
+(if armed) pushes interleaved stem planes into a second lock-free FIFO. Delay and
+reverb buffers are allocated in `prepare` only.
+
+**Analysis worker** drains Basic Pitch results (chroma / chord / key), locks
+tempo from aubio onset IOIs, and emits named-note MIDI. After a few bars of a
+stable key the key auto-lock can engage. **BPM never auto-locks** — Auto BPM keeps
+slewing from onset IOIs until **Lock Tempo** is on. Manual key/BPM overrides
+bypass auto entirely. Homemade YIN remains as fallback if aubio is missing.
 
 **Stem writer thread** drains the record FIFO and writes 32-bit float WAVs.
 Start and stop are atomic across all buses: guitar, drums, bass, keys, fx, master.

@@ -49,7 +49,7 @@ void InputAnalyzer::prepare (double sr)
     release();
     sampleRate = sr > 1.0 ? sr : 44100.0;
     windowSize = 2048;
-    hop = juce::jmax (256, (int) std::lround (sampleRate * 0.012)); // ~12 ms
+    hop = 512;
 
     const int ringSize = juce::jmax (windowSize * 4, (int) std::lround (sampleRate * 2.0));
     fifo.setTotalSize (ringSize);
@@ -59,8 +59,9 @@ void InputAnalyzer::prepare (double sr)
     yinCmnd.assign ((size_t) windowSize, 0.0f);
     gather.assign ((size_t) windowSize, 0.0f);
     chroma.fill (0.0f);
-    ioiSec.fill (0.0f);
-    ioiCount = ioiWrite = 0;
+    for (auto& v : ioiSec) v.store (0.0f);
+    ioiCount.store (0);
+    ioiWrite.store (0);
     lastEnergy = fluxAvg = 0.0f;
     samplesSinceOnset = 1.0e9;
     lastNoteOnSec = -1.0;
@@ -92,6 +93,11 @@ void InputAnalyzer::prepare (double sr)
         history.clear();
     }
 
+    aubioOk.store (aubio.prepare (sampleRate, hop, windowSize) ? 1 : 0, std::memory_order_relaxed);
+    hopSerial.store (0);
+    samplesSinceOnset = 1.0e9;
+    pitchWorker.prepare (sampleRate);
+
     startThread (juce::Thread::Priority::low);
 }
 
@@ -99,6 +105,9 @@ void InputAnalyzer::release()
 {
     signalThreadShouldExit();
     stopThread (2000);
+    pitchWorker.release();
+    aubio.release();
+    aubioOk.store (0);
 }
 
 void InputAnalyzer::setManualKey (int pc) noexcept
@@ -158,7 +167,7 @@ void InputAnalyzer::nudgeBpm (float delta) noexcept
 
 void InputAnalyzer::captureCal (int stage) noexcept
 {
-    const float r = juce::jmax (0.004f, rmsSmooth);
+    const float r = juce::jmax (0.004f, rmsAtom.load (std::memory_order_relaxed));
     if (stage <= 0) calSoft.store (r, std::memory_order_relaxed);
     else if (stage == 1) calMid.store (r, std::memory_order_relaxed);
     else calHard.store (r, std::memory_order_relaxed);
@@ -170,6 +179,17 @@ void InputAnalyzer::pushSamples (const float* data, int numSamples) noexcept
 {
     if (data == nullptr || numSamples <= 0)
         return;
+
+    pitchWorker.pushSamples (data, numSamples);
+
+    if (aubioOk.load (std::memory_order_relaxed) != 0)
+    {
+        aubio.process (data, numSamples);
+        if (aubio.consumeHop())
+            applyAubioHop();
+        return;
+    }
+
     if (fifo.getFreeSpace() < numSamples)
         return; // drop rather than block the audio thread
 
@@ -185,43 +205,74 @@ void InputAnalyzer::pushSamples (const float* data, int numSamples) noexcept
 void InputAnalyzer::run()
 {
     int gatherPos = 0;
+    uint32_t seenHop = 0;
 
     while (! threadShouldExit())
     {
-        const int ready = fifo.getNumReady();
-        if (ready <= 0)
+        bool did = false;
+
+        if (aubioOk.load (std::memory_order_relaxed) != 0)
         {
-            wait (4);
-            continue;
+            const uint32_t s = hopSerial.load (std::memory_order_relaxed);
+            if (s != seenHop)
+            {
+                seenHop = s;
+                hopsElapsed += 1.0;
+                emitNote (freqHz.load (std::memory_order_relaxed),
+                          confidence.load (std::memory_order_relaxed),
+                          rmsAtom.load (std::memory_order_relaxed));
+                if (! pitchWorker.isAvailable())
+                    updateKey (freqHz.load (std::memory_order_relaxed),
+                               confidence.load (std::memory_order_relaxed),
+                               rmsAtom.load (std::memory_order_relaxed));
+                updateTempoFromIoi();
+                maybeLock();
+                did = true;
+            }
+        }
+        else
+        {
+            const int ready = fifo.getNumReady();
+            if (ready > 0)
+            {
+                int s1 = 0, n1 = 0, s2 = 0, n2 = 0;
+                fifo.prepareToRead (ready, s1, n1, s2, n2);
+
+                auto take = [this, &gatherPos] (int start, int count)
+                {
+                    for (int i = 0; i < count; ++i)
+                    {
+                        gather[(size_t) gatherPos] = ring[(size_t) (start + i)];
+                        gatherPos = (gatherPos + 1) % windowSize;
+
+                        if (++hopCounter >= hop)
+                        {
+                            hopCounter = 0;
+                            for (int k = 0; k < windowSize; ++k)
+                            {
+                                const int idx = (gatherPos + k) % windowSize;
+                                window[(size_t) k] = gather[(size_t) idx];
+                            }
+                            analyseWindow (window.data(), windowSize);
+                        }
+                    }
+                };
+
+                take (s1, n1);
+                take (s2, n2);
+                fifo.finishedRead (n1 + n2);
+                did = true;
+            }
         }
 
-        int s1 = 0, n1 = 0, s2 = 0, n2 = 0;
-        fifo.prepareToRead (ready, s1, n1, s2, n2);
-
-        auto take = [this, &gatherPos] (int start, int count)
+        if (pitchWorker.consumeReady())
         {
-            for (int i = 0; i < count; ++i)
-            {
-                gather[(size_t) gatherPos] = ring[(size_t) (start + i)];
-                gatherPos = (gatherPos + 1) % windowSize;
+            pullBasicPitch();
+            did = true;
+        }
 
-                if (++hopCounter >= hop)
-                {
-                    hopCounter = 0;
-                    // Latest windowSize samples ending at gatherPos.
-                    for (int k = 0; k < windowSize; ++k)
-                    {
-                        const int idx = (gatherPos + k) % windowSize;
-                        window[(size_t) k] = gather[(size_t) idx];
-                    }
-                    analyseWindow (window.data(), windowSize);
-                }
-            }
-        };
-
-        take (s1, n1);
-        take (s2, n2);
-        fifo.finishedRead (n1 + n2);
+        if (! did)
+            wait (4);
     }
 }
 
@@ -345,9 +396,12 @@ void InputAnalyzer::pushIoi (float sec) noexcept
 {
     if (sec < 0.18f || sec > 1.20f)
         return;
-    ioiSec[(size_t) ioiWrite] = sec;
-    ioiWrite = (ioiWrite + 1) % (int) ioiSec.size();
-    ioiCount = juce::jmin ((int) ioiSec.size(), ioiCount + 1);
+    const int w = ioiWrite.load (std::memory_order_relaxed);
+    ioiSec[(size_t) w].store (sec, std::memory_order_relaxed);
+    ioiWrite.store ((w + 1) % (int) ioiSec.size(), std::memory_order_relaxed);
+    ioiCount.store (juce::jmin ((int) ioiSec.size(),
+                                ioiCount.load (std::memory_order_relaxed) + 1),
+                    std::memory_order_relaxed);
 }
 
 void InputAnalyzer::updateTempo (float rms, int n) noexcept
@@ -383,10 +437,22 @@ void InputAnalyzer::updateTempo (float rms, int n) noexcept
         || lockTempo.load (std::memory_order_relaxed) != 0)
         return;
 
-    if (ioiCount >= 4)
+    updateTempoFromIoi();
+}
+
+void InputAnalyzer::updateTempoFromIoi() noexcept
+{
+    if (autoBpm.load (std::memory_order_relaxed) == 0
+        || lockTempo.load (std::memory_order_relaxed) != 0)
+        return;
+
+    const int count = ioiCount.load (std::memory_order_relaxed);
+    if (count >= 4)
     {
-        std::array<float, 8> tmp = ioiSec;
-        const int used = juce::jmin (ioiCount, (int) tmp.size());
+        std::array<float, 8> tmp {};
+        const int used = juce::jmin (count, (int) tmp.size());
+        for (int i = 0; i < used; ++i)
+            tmp[(size_t) i] = ioiSec[(size_t) i].load (std::memory_order_relaxed);
         std::sort (tmp.begin(), tmp.begin() + used);
         const float median = tmp[(size_t) (used / 2)];
         float est = 60.0f / juce::jmax (0.18f, median);
@@ -462,11 +528,14 @@ void InputAnalyzer::analyseWindow (const float* x, int n) noexcept
     }
 
     emitNote (hz, conf, rmsSmooth);
-    updateKey (hz, conf, rmsSmooth);
+    if (! pitchWorker.isAvailable())
+    {
+        updateKey (hz, conf, rmsSmooth);
+        updatePlayerChord();
+    }
     updateTempo (rmsSmooth, n);
-    updatePlayerChord();
 
-    const float onsetBusy = juce::jlimit (0.0f, 1.0f, (float) ioiCount / 8.0f);
+    const float onsetBusy = juce::jlimit (0.0f, 1.0f, (float) ioiCount.load (std::memory_order_relaxed) / 8.0f);
     const float loud = juce::jlimit (0.0f, 1.0f, rmsSmooth * 8.0f);
     const float act = 0.55f * loud + 0.45f * onsetBusy;
     activitySmooth = activitySmooth * 0.80f + act * 0.20f;
@@ -531,13 +600,16 @@ void InputAnalyzer::copyChroma (float out[12]) const noexcept
 juce::String InputAnalyzer::getPlayerChordName() const
 {
     static const char* pcN[] = { "C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B" };
-    static const char* degN[] = { "", "m", "", "m", "m", "", "", "m" };
     const int root = playerChordRoot.load (std::memory_order_relaxed);
     const int deg = playerChordDeg.load (std::memory_order_relaxed);
+    const int q = playerChordQuality.load (std::memory_order_relaxed);
     juce::String s (pcN[((root % 12) + 12) % 12]);
-    // minor-ish degrees: vi, ii, bIII
-    if (deg == 3 || deg == 7 || deg == 4)
+    if (q == BasicPitchWorker::Min || deg == 3 || deg == 7 || deg == 4)
         s << "m";
+    else if (q == BasicPitchWorker::Dom7)
+        s << "7";
+    else if (q == BasicPitchWorker::Fifth)
+        s << "5";
     return s;
 }
 
@@ -805,4 +877,161 @@ juce::String InputAnalyzer::exportMidi (const juce::File& dest) const
         return "Failed to write MIDI";
     juce::ignoreUnused (b);
     return {};
+}
+
+void InputAnalyzer::applyAubioHop() noexcept
+{
+    const float hz = aubio.lastHz();
+    const float conf = aubio.confidence();
+    const float rms = aubio.rms();
+    const bool onset = aubio.onsetThisHop();
+
+    rmsSmooth = rmsSmooth * 0.85f + rms * 0.15f;
+    rmsAtom.store (rmsSmooth, std::memory_order_relaxed);
+
+    if (conf > 0.22f && hz >= kMinHz && hz <= kMaxHz)
+    {
+        freqHz.store (hz, std::memory_order_relaxed);
+        confidence.store (conf, std::memory_order_relaxed);
+        const int midi = (int) std::lround (69.0f + 12.0f * std::log2 (hz / 440.0f));
+        midiNote.store (juce::jlimit (0, 127, midi), std::memory_order_relaxed);
+    }
+    else
+    {
+        confidence.store (confidence.load (std::memory_order_relaxed) * 0.9f, std::memory_order_relaxed);
+        if (rmsSmooth < 0.006f)
+        {
+            freqHz.store (0.0f, std::memory_order_relaxed);
+            midiNote.store (-1, std::memory_order_relaxed);
+        }
+    }
+
+    samplesSinceOnset += (double) hop;
+    const double minGap = sampleRate * 0.14;
+    if (onset && samplesSinceOnset > minGap)
+    {
+        const float ioi = (float) (samplesSinceOnset / sampleRate);
+        samplesSinceOnset = 0.0;
+        pushIoi (ioi);
+        applyBandState (true, rmsSmooth, false);
+    }
+    else
+        applyBandState (false, rmsSmooth, false);
+
+    hopSerial.fetch_add (1, std::memory_order_relaxed);
+}
+
+void InputAnalyzer::applyBandState (bool onset, float rms, bool fromBasicPitch) noexcept
+{
+    // Band mapping:
+    // - onset && rms high => onsetFlag (consumeOnset drives fills) + intensity bump
+    // - Basic Pitch chord change => playerChordRoot/Deg so Arrangement/FollowerBand shift bass/keys
+    // - YIN midiNote still drives transcription + solo HUD
+    juce::ignoreUnused (fromBasicPitch);
+
+    const float onsetBusy = juce::jlimit (0.0f, 1.0f,
+        (float) ioiCount.load (std::memory_order_relaxed) / 8.0f);
+    const float loud = juce::jlimit (0.0f, 1.0f, rmsSmooth * 8.0f);
+    const float act = 0.55f * loud + 0.45f * onsetBusy;
+    activitySmooth = activitySmooth * 0.80f + act * 0.20f;
+    activity.store (activitySmooth, std::memory_order_relaxed);
+
+    if (onset && rms > 0.006f)
+    {
+        onsetFlag.store (1, std::memory_order_relaxed);
+        if (lockIntensity.load (std::memory_order_relaxed) == 0)
+            intensitySmooth = juce::jmin (1.0f, intensitySmooth + 0.08f);
+    }
+
+    float player = activitySmooth;
+    if (calibrated.load (std::memory_order_relaxed) != 0)
+    {
+        const float a = calSoft.load(), b = calMid.load(), c = calHard.load();
+        if (rmsSmooth <= a) player = 0.12f * rmsSmooth / juce::jmax (0.004f, a);
+        else if (rmsSmooth <= b) player = 0.12f + 0.38f * (rmsSmooth - a) / juce::jmax (0.004f, b - a);
+        else if (rmsSmooth <= c) player = 0.50f + 0.50f * (rmsSmooth - b) / juce::jmax (0.004f, c - b);
+        else player = 1.0f;
+        player = juce::jlimit (0.0f, 1.0f, 0.7f * player + 0.3f * onsetBusy);
+    }
+    playerEnergy.store (player, std::memory_order_relaxed);
+
+    const float conf = confidence.load (std::memory_order_relaxed);
+    const float hz = freqHz.load (std::memory_order_relaxed);
+    // Soft engage: rms>0.006 + (conf>0.22 or onset or activity>0.10). No timeout auto-start.
+    if (rmsSmooth > 0.006f
+        && (conf > 0.22f || onset || activitySmooth > 0.10f))
+        engaged.store (1, std::memory_order_relaxed);
+
+    if (lockIntensity.load (std::memory_order_relaxed) == 0)
+    {
+        if (player > intensitySmooth)
+            intensitySmooth += (player - intensitySmooth) * 0.06f;
+        else
+            intensitySmooth += (player - intensitySmooth) * 0.018f;
+        intensity.store (intensitySmooth, std::memory_order_relaxed);
+    }
+
+    juce::ignoreUnused (rms, hz);
+}
+
+int InputAnalyzer::degreeFromRoot (int rootPc, int key) noexcept
+{
+    const int st = ((rootPc - key) % 12 + 12) % 12;
+    switch (st)
+    {
+        case 0:  return 0; // I
+        case 2:  return 7; // ii
+        case 3:  return 4; // bIII
+        case 5:  return 1; // IV
+        case 7:  return 2; // V
+        case 8:  return 5; // bVI
+        case 9:  return 3; // vi
+        case 10: return 6; // bVII
+        default: return 0;
+    }
+}
+
+void InputAnalyzer::pullBasicPitch() noexcept
+{
+    float c[12] = {};
+    pitchWorker.copyChroma (c);
+    for (int i = 0; i < 12; ++i)
+    {
+        chroma[(size_t) i] = c[i];
+        chromaAtom[(size_t) i].store (c[i], std::memory_order_relaxed);
+    }
+
+    const int root = pitchWorker.chordRoot();
+    const int q = pitchWorker.chordQuality();
+    const int bpKey = pitchWorker.keyPc();
+    playerChordQuality.store (q, std::memory_order_relaxed);
+
+    if (autoKey.load (std::memory_order_relaxed) != 0
+        && keyLocked.load (std::memory_order_relaxed) == 0)
+    {
+        if (bpKey == pendingKey)
+            ++keyStableHops;
+        else
+        {
+            pendingKey = bpKey;
+            keyStableHops = 0;
+        }
+        keyPc.store (pendingKey, std::memory_order_relaxed);
+    }
+
+    const int key = keyPc.load (std::memory_order_relaxed);
+    const int deg = degreeFromRoot (root, key);
+    if (deg == pendingChord)
+        ++chordStableHops;
+    else
+    {
+        pendingChord = deg;
+        chordStableHops = 0;
+    }
+    if (chordStableHops >= 2)
+    {
+        playerChordDeg.store (deg, std::memory_order_relaxed);
+        playerChordRoot.store (((root % 12) + 12) % 12, std::memory_order_relaxed);
+        applyBandState (false, rmsSmooth, true);
+    }
 }

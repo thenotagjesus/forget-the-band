@@ -2,14 +2,20 @@
 
 #include <JuceHeader.h>
 #include "Daw/DawModel.h"
+#include "Analysis/AubioEngine.h"
+#include "Analysis/BasicPitchWorker.h"
 #include <array>
+#include <cstdint>
 #include <atomic>
 #include <vector>
 
 /**
  * Pitch / key / tempo / activity / transcription.
  * Audio thread: pushSamples() + drainMidi() only (lock-free FIFOs).
- * Worker thread: YIN, chroma, onset IOIs, note on/off. Publishes atomics.
+ *   - AubioEngine::process (onset / YIN / RMS) publishes atomics immediately.
+ *   - BasicPitchWorker::pushSamples into a lock-free ring.
+ * Worker thread: transcription, IOI tempo lock, Basic Pitch chroma/chord/key.
+ * Homemade YIN remains as fallback if aubio prepare() failed.
  */
 class InputAnalyzer : public juce::Thread
 {
@@ -86,7 +92,7 @@ public:
     juce::String exportMidi (const juce::File& dest) const;
 
     static const char* pitchClassName (int pc);
-    static juce::String noteNameFromMidi (int note);
+    static juce::String noteNameFromMidi (int midiNoteNumber);
 
 private:
     struct MidiPulse { juce::uint8 status = 0, note = 0, vel = 0; };
@@ -95,6 +101,7 @@ private:
     float detectYin (const float* x, int n, float& conf) noexcept;
     void updateKey (float hz, float conf, float rms) noexcept;
     void updateTempo (float rms, int n) noexcept;
+    void updateTempoFromIoi() noexcept;
     void pushIoi (float sec) noexcept;
     void maybeLock() noexcept;
     void emitNote (float hz, float conf, float rms) noexcept;
@@ -102,6 +109,13 @@ private:
     void updatePlayerChord() noexcept;
     void closeHeldNote (double endQ) noexcept;
     double currentQuarter() const noexcept;
+    void applyAubioHop() noexcept;
+    void applyBandState (bool onset, float rms, bool fromBasicPitch) noexcept;
+    void pullBasicPitch() noexcept;
+    int  degreeFromRoot (int rootPc, int key) noexcept;
+
+    AubioEngine aubio;
+    BasicPitchWorker pitchWorker;
 
     double sampleRate = 44100.0;
     int hop = 512;
@@ -144,8 +158,11 @@ private:
     std::atomic<float> calHard { 0.20f };
     std::atomic<int>   playerChordDeg { 0 };
     std::atomic<int>   playerChordRoot { 4 };
+    std::atomic<int>   playerChordQuality { 0 };
     std::atomic<int>   onsetFlag { 0 };
     std::atomic<int>   liveCount { 0 };
+    std::atomic<int>   aubioOk { 0 };
+    std::atomic<uint32_t> hopSerial { 0 };
 
     std::array<float, 12> chroma {};
     std::array<std::atomic<float>, 12> chromaAtom {};
@@ -157,9 +174,9 @@ private:
     float fluxAvg = 0.0f;
     double samplesSinceOnset = 1.0e9;
     double lastNoteOnSec = -1.0;
-    std::array<float, 8> ioiSec {};
-    int ioiCount = 0;
-    int ioiWrite = 0;
+    std::array<std::atomic<float>, 8> ioiSec {};
+    std::atomic<int> ioiCount { 0 };
+    std::atomic<int> ioiWrite { 0 };
     float bpmSmoothed = 112.0f;
     int bpmStableHops = 0;
 
