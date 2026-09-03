@@ -152,3 +152,9 @@ if(MSVC)
 else()
     target_compile_options(Session PRIVATE -Wall -Wextra)
 endif()
+
+# Dual-pipeline tracker: aubio (audio thread) + ONNX Runtime Basic Pitch (worker).
+# Each module sets FTB_HAS_AUBIO / FTB_HAS_ONNX to 1 when found, else 0.
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/AubioMin.cmake")
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/OnnxRuntime.cmake")
+

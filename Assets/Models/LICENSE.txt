@@ -1,0 +1,14 @@
+Spotify Basic Pitch
+===================
+
+Assets/Models/basic_pitch.onnx is the ICASSP 2022 `nmp.onnx` export from
+
+    https://github.com/spotify/basic-pitch
+
+Copyright 2022 Spotify AB.
+
+Licensed under the Apache License, Version 2.0.
+http://www.apache.org/licenses/LICENSE-2.0
+
+The rest of Forget The Band remains GNU GPL v3 (see /LICENSE). Apache-2.0
+model weights may be combined with a GPL application; they stay Apache-2.0.
