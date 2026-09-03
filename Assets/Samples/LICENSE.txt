@@ -14,10 +14,6 @@ Do not add copyrighted kits, Rocksmith rips, Splice paid packs, or CC-BY-NC.
      drums/funk_kick.wav     (kick.wav)
      drums/funk_snare.wav    (snare-m.wav)
      drums/funk_hat.wav      (hihat-closed.wav)
-     drums/metal_kick.wav    replaced by original DSP industrial kick (was kick-alt.wav)
-     drums/metal_snare.wav   replaced by original DSP industrial snare (was snare-h.wav)
-     drums/metal_hat.wav     replaced by original DSP industrial hat (was hihat-open.wav)
-     drums/crash.wav         (crash.wav)
      fx/clap.wav             (clap.wav)
 
 2) Kenney Impact Sounds 1.0 — CC0
@@ -40,19 +36,37 @@ Do not add copyrighted kits, Rocksmith rips, Splice paid packs, or CC-BY-NC.
      fx/boom.wav             Audio/lowFrequency_explosion_000.ogg
      fx/hit.wav              Audio/explosionCrunch_000.ogg
 
-4) Original DSP one-shots — CC0 1.0
+4) Virtuosity Drums (jazz / acoustic kit) — CC0 1.0
+   Performed by Austin McMahon at Virtuosity Musical Instruments, Boston, MA.
+   Library: Versilian Studios / Karoryfer Samples / Karoryfer Lecolds.
+   Source: https://github.com/sfzinstruments/virtuosity_drums
+   One-shots via https://github.com/backmeupplz/drumkit-kits (virtuosity-jazz, OH)
+   License: Creative Commons Zero v1.0 Universal
+     https://creativecommons.org/publicdomain/zero/1.0/
+   Files (converted 44.1 kHz mono 16-bit, medium velocity):
+     drums/acoustic_kick.wav   virtuosity-jazz/36_v2_rr1.wav  (GM kick, OH)
+     drums/acoustic_snare.wav  virtuosity-jazz/38_v18.wav     (center snare, mid vel)
+     drums/acoustic_hat.wav    virtuosity-jazz/42_v2_rr1.wav  (closed hat)
+
+5) Karoryfer Big Rusty Drums (metal / rock kit) — CC0 1.0
+   Drums by Zygmunt Szpaderski; sampled by Karoryfer Samples.
+   Source: https://github.com/sfzinstruments/karoryfer.big-rusty-drums
+   Shop: https://shop.karoryfer.com/pages/free-big-rusty-drums
+   License: Creative Commons Zero v1.0 Universal
+     https://creativecommons.org/publicdomain/zero/1.0/
+   Files (close-mic, converted 44.1 kHz mono 16-bit, medium velocity):
+     drums/metal_kick.wav    Samples/kick_24/kick/kick/k_vl8_rr1.flac
+     drums/metal_snare.wav   Samples/snare_14/center/top/sn_center_vl6_rr1.flac
+     drums/metal_hat.wav     Samples/hihat_14/cl/cl/ht_cl_vl3_rr1.flac
+     drums/crash.wav         Samples/crash_17/cr/cl/cr_vl3_rr1.flac
+
+6) Original DSP one-shots — CC0 1.0
    Author: Centrophy / Forget The Band
    Generated procedurally (not sampled from copyrighted recordings).
    License: CC0 1.0 Universal  https://creativecommons.org/publicdomain/zero/1.0/
    Files:
-     drums/acoustic_kick.wav
-     drums/acoustic_snare.wav
-     drums/acoustic_hat.wav
      bass/pluck.wav
      keys/hammer.wav
      keys/strings.wav
-     drums/metal_kick.wav
-     drums/metal_snare.wav
-     drums/metal_hat.wav
 
 User drops (not shipped): Documents/Centrophy/ForgetTheBand/samples/fx

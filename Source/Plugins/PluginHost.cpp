@@ -22,6 +22,44 @@ juce::File PluginHost::deadMansPedalFile() const
     return settingsFile().getSiblingFile ("vst3-crashed.txt");
 }
 
+
+juce::File PluginHost::starterFlagFile() const
+{
+    return settingsFile().getSiblingFile ("starter-vst.flag");
+}
+
+bool PluginHost::isStarterSeeded() const
+{
+    return starterFlagFile().existsAsFile();
+}
+
+void PluginHost::markStarterSeeded()
+{
+    starterFlagFile().replaceWithText ("1\n");
+}
+
+bool PluginHost::shouldAutoScan() const
+{
+    return knownList.getNumTypes() == 0 || ! isStarterSeeded();
+}
+
+bool PluginHost::findTypeMatching (const juce::StringArray& needles, juce::PluginDescription& out) const
+{
+    for (const auto& t : knownList.getTypes())
+    {
+        const auto hay = t.name + " " + t.descriptiveName + " " + t.fileOrIdentifier;
+        for (const auto& n : needles)
+        {
+            if (n.isNotEmpty() && hay.containsIgnoreCase (n))
+            {
+                out = t;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 juce::FileSearchPath PluginHost::defaultVST3Paths() const
 {
     juce::FileSearchPath path;
@@ -31,8 +69,9 @@ juce::FileSearchPath PluginHost::defaultVST3Paths() const
     path.add (juce::File ("C:/Program Files/Common Files/VST3"));
     path.add (juce::File ("C:/Program Files (x86)/Common Files/VST3"));
     const auto docs = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory);
-    if (docs.getChildFile ("VST3").isDirectory())
-        path.add (docs.getChildFile ("VST3"));
+    auto userVst = docs.getChildFile ("VST3");
+    userVst.createDirectory();
+    path.add (userVst);
     if (docs.isDirectory())
         path.add (docs);
 #elif JUCE_MAC

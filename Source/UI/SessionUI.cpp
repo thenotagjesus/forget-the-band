@@ -365,6 +365,7 @@ SessionUI::SessionUI (SessionProcessor& processor, juce::AudioDeviceManager& dev
     applyToProcessor();
     applyFonts();
     startTimerHz (20);
+    kickStarterVstScan();
 }
 
 SessionUI::~SessionUI()
@@ -1489,8 +1490,12 @@ void SessionUI::timerCallback()
         }
         else
         {
+            const auto scan = proc.getPluginHost().getLastScanStatus();
             const auto dir = proc.getWriter().getSessionDirectory();
-            if (dir.isDirectory())
+            if (scan.isNotEmpty() && (scan.containsIgnoreCase ("starter")
+                                      || scan.containsIgnoreCase ("Scanning")))
+                recPath.setText (scan, juce::dontSendNotification);
+            else if (dir.isDirectory())
                 recPath.setText ("Last  " + dir.getFullPathName(), juce::dontSendNotification);
             else
                 recPath.setText (kit, juce::dontSendNotification);
@@ -1893,4 +1898,45 @@ void SessionUI::drawNeck (juce::Graphics& g, juce::Rectangle<int> r) const
             }
         }
     }
+}
+
+void SessionUI::kickStarterVstScan()
+{
+    auto& host = proc.getPluginHost();
+
+    auto applySeed = [this]
+    {
+        auto& h = proc.getPluginHost();
+        const int n = proc.seedStarterGuitarVsts();
+        h.markStarterSeeded();
+        refreshPluginCombos();
+        auto st = h.getLastScanStatus();
+        if (n > 0)
+        {
+            guitarVstLbl.setText ("Guitar inserts · " + juce::String (n) + " starter",
+                                  juce::dontSendNotification);
+            if (st.isEmpty())
+                st = "VST3 ready";
+            st += " · starter VSTs loaded: " + juce::String (n);
+            h.setLastScanStatus (st);
+        }
+        else if (st.isEmpty())
+        {
+            guitarVstLbl.setText ("Guitar inserts", juce::dontSendNotification);
+        }
+        recPath.setText (h.getLastScanStatus(), juce::dontSendNotification);
+    };
+
+    if (! host.shouldAutoScan())
+        return;
+
+    if (host.isScanning())
+        return;
+
+    scanBtn.setButtonText ("Scanning...");
+    host.scanDefaultVST3Paths ([this, applySeed]
+    {
+        scanBtn.setButtonText ("Plugins");
+        applySeed();
+    });
 }

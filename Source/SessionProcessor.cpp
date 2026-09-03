@@ -685,3 +685,52 @@ void SessionProcessor::processDuplex (const float* const* inChannels, int numIns
                 std::memset (outChannels[c], 0, (size_t) n * sizeof (float));
     }
 }
+
+bool SessionProcessor::guitarRackHasAnyPlugin() const
+{
+    for (int i = 0; i < PluginRack::NumSlots; ++i)
+        if (guitarRack.getSlotPluginName (i).isNotEmpty())
+            return true;
+    return false;
+}
+
+int SessionProcessor::seedStarterGuitarVsts()
+{
+    if (guitarRackHasAnyPlugin())
+        return 0;
+
+    juce::PluginDescription ampDesc, odDesc;
+    const bool haveNam = host.findTypeMatching (
+        { "Neural Amp Modeler", "NeuralAmpModeler", "NeuralAmp" }, ampDesc);
+    const bool haveVolum = ! haveNam && host.findTypeMatching ({ "VoLum" }, ampDesc);
+    const bool haveAmp = haveNam || haveVolum;
+    const bool haveOd = host.findTypeMatching ({ "ChowCentaur", "KlonCentaur" }, odDesc);
+
+    const int insertSlots[] = { PluginRack::PreAmp, PluginRack::Post, PluginRack::Slot4 };
+    int next = 0;
+    int loaded = 0;
+
+    auto place = [&] (const juce::PluginDescription& d)
+    {
+        while (next < 3)
+        {
+            const int slot = insertSlots[next++];
+            if (guitarRack.getSlotPluginName (slot).isNotEmpty())
+                continue;
+            const auto err = guitarRack.loadPlugin (slot, d);
+            if (err.isEmpty())
+                ++loaded;
+            return;
+        }
+    };
+
+    if (haveAmp)
+        place (ampDesc);
+    if (haveOd)
+        place (odDesc);
+
+    if (loaded > 0)
+        guitarRack.saveSlotState();
+    return loaded;
+}
+

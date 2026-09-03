@@ -28,7 +28,8 @@ Built with JUCE 8.0.8 (FetchContent, C++20). Windows-first desktop app. Version 
   from how hard you play, not tempo hunting. Auto BPM still updates only on
   guitar onsets if you turn it on. Clamp 60–140.
 - **Export MIDI** writes the named-note transcription as a Standard MIDI `.mid` file
-- CC0 one-shots under `Assets/Samples/` (BushDrum, Kenney Impact/Sci-Fi, original DSP) with synth fallback
+- CC0 one-shots under `Assets/Samples/` (Virtuosity Drums jazz/acoustic, Big Rusty metal, BushDrum funk, Kenney FX) with synth fallback
+- Official free guitar VST3s (NAM, VoLum, ChowCentaur) live in `Documents\\VST3` — scanned on first launch into empty insert slots
 - Optional 4-beat count-in click on Start Session (band silent until it finishes; default on)
 - Mixer: level / mute / solo / live peak meter for Guitar, Drums, Master (bass/keys/FX strips hidden this round)
 - Stem recording: one WAV per bus plus stereo master (including `fx.wav`), 32-bit float; elapsed mm:ss + REC pulse

@@ -66,6 +66,7 @@ private:
     void bindPluginSlot (juce::ComboBox& box, juce::TextButton& byp, juce::TextButton& ed,
                          std::function<PluginRack&()> rackFn, int visualIndex);
     void refreshPluginCombos();
+    void kickStarterVstScan();
     void refreshDawMixer();
     void doNewProject();
     void doOpenProject();

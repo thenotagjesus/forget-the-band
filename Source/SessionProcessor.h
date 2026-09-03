@@ -114,7 +114,12 @@ public:
 
     static const char* busName (int bus);
 
+    /** Load NAM/VoLum then ChowCentaur into empty insert slots (never AmpReplace).
+        No-op if any guitar slot already has a plugin. Returns how many loaded. */
+    int seedStarterGuitarVsts();
+
 private:
+    bool guitarRackHasAnyPlugin() const;
     float busGain (int bus) const noexcept;
     void  beginCountIn() noexcept;
     void  finishCountIn() noexcept;
