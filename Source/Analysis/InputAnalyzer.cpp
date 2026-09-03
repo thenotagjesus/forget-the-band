@@ -455,7 +455,7 @@ void InputAnalyzer::updateTempoFromIoi() noexcept
             tmp[(size_t) i] = ioiSec[(size_t) i].load (std::memory_order_relaxed);
         std::sort (tmp.begin(), tmp.begin() + used);
         const float median = tmp[(size_t) (used / 2)];
-        float est = 60.0f / juce::jmax (0.18f, median);
+        float est = 60.0f / juce::jmax (0.22f, median);
         const float cur = juce::jmax (60.0f, bpmSmoothed);
         for (int k = 0; k < 4; ++k)
         {
@@ -468,11 +468,14 @@ void InputAnalyzer::updateTempoFromIoi() noexcept
         }
         while (est > 180.0f) est *= 0.5f;
         while (est < 70.0f)  est *= 2.0f;
-        est = juce::jlimit (70.0f, 180.0f, est);
-        // Pocket clock: at most ~1.5 BPM per successful 4+ IOI consensus.
+        // 8ths/16ths misread as quarters still land above the pocket ceiling.
+        if (est > 128.f)
+            est *= 0.5f;
+        est = juce::jlimit (72.0f, 128.0f, est);
+        // Pocket clock: at most ~0.55 BPM per successful 4+ IOI consensus.
         // Never jump 20 BPM because a high-frequency onset fired.
-        const float delta = juce::jlimit (-1.5f, 1.5f, est - bpmSmoothed);
-        bpmSmoothed = juce::jlimit (70.0f, 180.0f, bpmSmoothed + delta);
+        const float delta = juce::jlimit (-0.55f, 0.55f, est - bpmSmoothed);
+        bpmSmoothed = juce::jlimit (72.0f, 128.0f, bpmSmoothed + delta);
 
         if (std::abs (est - bpmSmoothed) < 4.0f)
             ++bpmStableHops;
@@ -539,7 +542,7 @@ void InputAnalyzer::analyseWindow (const float* x, int n) noexcept
     updateTempo (rmsSmooth, n);
 
     const float onsetBusy = juce::jlimit (0.0f, 1.0f, (float) ioiCount.load (std::memory_order_relaxed) / 8.0f);
-    const float loud = juce::jlimit (0.0f, 1.0f, rmsSmooth * 8.0f);
+    const float loud = juce::jlimit (0.0f, 1.0f, rmsSmooth * 3.2f);
     const float act = 0.55f * loud + 0.45f * onsetBusy;
     activitySmooth = activitySmooth * 0.80f + act * 0.20f;
     activity.store (activitySmooth, std::memory_order_relaxed);
@@ -563,9 +566,9 @@ void InputAnalyzer::analyseWindow (const float* x, int n) noexcept
     if (lockIntensity.load (std::memory_order_relaxed) == 0)
     {
         if (player > intensitySmooth)
-            intensitySmooth += (player - intensitySmooth) * 0.06f;
+            intensitySmooth += (player - intensitySmooth) * 0.008f;
         else
-            intensitySmooth += (player - intensitySmooth) * 0.018f;
+            intensitySmooth += (player - intensitySmooth) * 0.010f;
         intensity.store (intensitySmooth, std::memory_order_relaxed);
     }
 
@@ -578,12 +581,7 @@ void InputAnalyzer::analyseWindow (const float* x, int n) noexcept
         fitAtom.store (fitAtom.load() * 0.85f + hit * 0.15f, std::memory_order_relaxed);
     }
 
-    if (energyDrift.load() != 0 && lockTempo.load() == 0)
-    {
-        const float base = bpmSmoothed;
-        bpm.store (juce::jlimit (60.0f, 180.0f, base * (1.0f + 0.012f * (intensitySmooth - 0.5f))),
-                   std::memory_order_relaxed);
-    }
+    // Intensity drives density, not auto tempo. energyDrift is a no-op on the auto BPM path.
 
     hopsElapsed += 1.0;
     maybeLock();
@@ -934,7 +932,7 @@ void InputAnalyzer::applyBandState (bool onset, float rms, bool fromBasicPitch) 
 
     const float onsetBusy = juce::jlimit (0.0f, 1.0f,
         (float) ioiCount.load (std::memory_order_relaxed) / 8.0f);
-    const float loud = juce::jlimit (0.0f, 1.0f, rmsSmooth * 8.0f);
+    const float loud = juce::jlimit (0.0f, 1.0f, rmsSmooth * 3.2f);
     const float act = 0.55f * loud + 0.45f * onsetBusy;
     activitySmooth = activitySmooth * 0.80f + act * 0.20f;
     activity.store (activitySmooth, std::memory_order_relaxed);
@@ -943,7 +941,7 @@ void InputAnalyzer::applyBandState (bool onset, float rms, bool fromBasicPitch) 
     {
         onsetFlag.store (1, std::memory_order_relaxed);
         if (lockIntensity.load (std::memory_order_relaxed) == 0)
-            intensitySmooth = juce::jmin (1.0f, intensitySmooth + 0.08f);
+            intensitySmooth = juce::jmin (1.0f, intensitySmooth + 0.012f);
     }
 
     float player = activitySmooth;
@@ -968,9 +966,9 @@ void InputAnalyzer::applyBandState (bool onset, float rms, bool fromBasicPitch) 
     if (lockIntensity.load (std::memory_order_relaxed) == 0)
     {
         if (player > intensitySmooth)
-            intensitySmooth += (player - intensitySmooth) * 0.06f;
+            intensitySmooth += (player - intensitySmooth) * 0.008f;
         else
-            intensitySmooth += (player - intensitySmooth) * 0.018f;
+            intensitySmooth += (player - intensitySmooth) * 0.010f;
         intensity.store (intensitySmooth, std::memory_order_relaxed);
     }
 

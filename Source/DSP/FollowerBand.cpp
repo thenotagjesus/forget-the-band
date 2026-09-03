@@ -541,7 +541,7 @@ int FollowerBand::pickBass (Style st, int step16, float inten, int deg, int upco
     const int nxt   = root + degreeSemitones (upcoming);
     const bool minor = degreeIsMinor (st, deg);
     const int third = minor ? 3 : 4;
-    const int layer = inten < 0.22f ? 0 : inten < 0.45f ? 1 : inten < 0.72f ? 2 : 3;
+    const int layer = inten < 0.38f ? 0 : inten < 0.62f ? 1 : inten < 0.85f ? 2 : 3;
     auto approach = [&]() -> int
     {
         const int prev = lastBassMidi;
@@ -567,8 +567,8 @@ int FollowerBand::pickBass (Style st, int step16, float inten, int deg, int upco
     if (step16 == 4 || step16 == 12)
         return chord + 7;
 
-    // push/fire: passing 8ths on the chord
-    if (layer >= 2 && (step16 % 2) == 0)
+    // fire: passing 8ths on the chord
+    if (layer >= 3 && (step16 % 2) == 0)
         return chord;
 
     // Funk/jazz extra syncopation at push/fire only.
@@ -702,7 +702,7 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
 
     // Density layers from intensity. Style only colours kick/snare placement
     // and hat-open vs ride — never whether the kit exists.
-    const int layer = inten < 0.22f ? 0 : inten < 0.45f ? 1 : inten < 0.72f ? 2 : 3;
+    const int layer = inten < 0.38f ? 0 : inten < 0.62f ? 1 : inten < 0.85f ? 2 : 3;
 
     if (drumsLive && fillThisBar)
     {
@@ -711,17 +711,17 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
         const bool low = layer <= 1, med = layer == 2, high = layer >= 3;
         auto hitK = [&] (std::initializer_list<int> xs) { for (int x : xs) if (step16 == x) trigKick (velK); };
         auto hitS = [&] (std::initializer_list<int> xs, float v) { for (int x : xs) if (step16 == x) trigSnare (v); };
-        if (low && var == 0) { hitK ({0,10}); hitS ({12,13,14,15}, velS); }
-        else if (low) { hitK ({0,8,12}); hitS ({4,14}, velS); }
+        if (low) { hitK ({0,8}); hitS ({4,12,14}, velS); }
         else if (med && var == 0) { hitK ({8,14}); hitS ({0,1,3,4,5,11}, velG); hitS ({2,6,10,12,13,15}, velS); }
         else if (med) { hitK ({0,3,6,9,12,15}); hitS ({1,4,7,10,13,14}, velS); }
         else if (high && var == 0) { hitK ({6,12}); hitS ({1,3}, velG); hitS ({0,2,4,5,7,9,11,13,14,15}, velS); }
         else { hitK ({0,4,9,11,15}); hitS ({2,7}, velG); hitS ({1,3,6,8,10,12,13,14}, velS); }
 
         // Fills are a real kit phrase: snare + kick + hat, not a single click.
+        // Low fill: hats on even 8ths only (no 16th snare dump, no extra kit).
         if (even8)
             trigHat (velH * (0.70f + 0.20f * inten), st == Style::Funk && (step16 == 14));
-        if (st == Style::Jazz && (step16 == 0 || step16 == 4 || step16 == 8 || step16 == 12))
+        if (! low && st == Style::Jazz && (step16 == 0 || step16 == 4 || step16 == 8 || step16 == 12))
             trigRide (velR);
         if (st == Style::Funk && med && (step16 == 7 || step16 == 15))
             trigHat (velO, true);
@@ -735,7 +735,7 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
             trigKick (velK);
         if (layer >= 1 && step16 == 8)
             trigKick (velK);
-        if (layer >= 2)
+        if (layer >= 3)
         {
             if (st == Style::Rock || st == Style::Metal)
             {
@@ -744,14 +744,12 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
             else if (step16 == 6) // blues / funk / jazz
                 trigKick (velK * 0.75f);
         }
-        if (layer >= 3 && st == Style::Metal && even8)
-            trigKick (velK * 0.72f);
 
         if (layer == 0 && step16 == 8)
             trigSnare (velS * 0.55f); // rest: light snare on 8
         if (layer >= 1 && (step16 == 4 || step16 == 12))
             trigSnare (velS);
-        if (layer >= 2 && (step16 == 3 || step16 == 7 || step16 == 11))
+        if (layer >= 3 && (step16 == 3 || step16 == 7 || step16 == 11))
             trigSnare (velG);
 
         if (layer == 0)
@@ -775,7 +773,7 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
         {
             if (even8)
                 trigHat (velH, st == Style::Funk && layer >= 2 && (step16 == 14));
-            if (layer >= 2 && ! even8 && (st == Style::Metal || st == Style::Rock))
+            if (layer >= 3 && ! even8 && (st == Style::Metal || st == Style::Rock))
                 trigHat (velH * 0.70f, false);
         }
 

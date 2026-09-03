@@ -552,7 +552,7 @@ void SessionProcessor::processDuplex (const float* const* inChannels, int numIns
             && fadeSilence.load (std::memory_order_relaxed) == 0
             && waitingNotes.load() == 0
             && countingIn.load() == 0)
-            be = juce::jmax (0.32f, be);
+            be = juce::jmax (0.28f, be);
         bandEnergy.store (be, std::memory_order_relaxed);
     }
     {
