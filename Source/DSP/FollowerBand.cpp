@@ -884,8 +884,6 @@ void FollowerBand::process (int keyPc,
     const float bassGain  = (bassOn.load (std::memory_order_relaxed) != 0 && (thinG & 0x2)) ? 1.0f : 0.0f;
     const float keysGain  = (keysOn.load (std::memory_order_relaxed) != 0 && (thinG & 0x4)) ? 1.0f : 0.0f;
 
-    const float kickDecay  = kickDecayUse;
-    const float snareDecay = snareDecayUse;
     float bassDecay  = (st == Style::Funk)  ? 0.9968f
                      : (st == Style::Metal) ? 0.9990f
                      : (st == Style::Jazz)  ? 0.99962f
