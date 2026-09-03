@@ -1,5 +1,9 @@
 # Minimal aubio (no waf). Onset + pitch + built-in Ooura FFT.
+# Do NOT #define HAVE_FFTW3 0 — aubio_priv.h tests defined(HAVE_FFTW3), so a 0 still includes fftw3.h.
 include(FetchContent)
+if(POLICY CMP0169)
+    cmake_policy(SET CMP0169 OLD)
+endif()
 
 set(_aubio_src "${CMAKE_CURRENT_SOURCE_DIR}/build/_deps/aubio-src")
 option(FTB_ENABLE_AUBIO "Build aubio (onset/pitch) into Session" ON)
@@ -48,24 +52,14 @@ file(WRITE "${_aubio_cfg}/config.h" [=[
 #ifdef _MSC_VER
 #define strdup _strdup
 #endif
+/* HAVE_FFTW3 / HAVE_ACCELERATE / HAVE_INTEL_IPP must stay *undefined* (Ooura FFT). */
 #define HAVE_WAV 0
-#define HAVE_WAVREAD 0
-#define HAVE_WAVWRITE 0
-#define HAVE_FFTW3 0
-#define HAVE_ACCELERATE 0
-#define HAVE_JACK 0
-#define HAVE_AVCODEC 0
-#define HAVE_LIBAV 0
-#define HAVE_SNDFILE 0
-#define HAVE_SAMPLERATE 0
-#define HAVE_SOURCE_APPLE_AUDIO 0
-#define HAVE_SINK_APPLE_AUDIO 0
 #define HAVE_AUBIO_DOUBLE 0
 #endif
 ]=])
 
 file(GLOB_RECURSE AUBIO_C CONFIGURE_DEPENDS "${_aubio_src}/src/*.c")
-list(FILTER AUBIO_C EXCLUDE REGEX ".*/(dct_fftw|dct_accelerate|dct_ipp|windll|source_sndfile|source_avcodec|source_apple_audio|sink_sndfile|sink_apple_audio|audio_unit|source_wavread|sink_wavwrite)\\.c$")
+list(FILTER AUBIO_C EXCLUDE REGEX ".*/(dct_fftw|dct_accelerate|dct_ipp|windll|source_sndfile|source_avcodec|source_apple_audio|sink_sndfile|sink_apple_audio|audio_unit|source_wavread|sink_wavwrite|utils_apple_audio)\\.c$")
 
 add_library(aubio STATIC ${AUBIO_C})
 set_target_properties(aubio PROPERTIES
@@ -81,11 +75,7 @@ target_compile_definitions(aubio
     PRIVATE
         HAVE_CONFIG_H
         HAVE_WAV=0
-        HAVE_FFTW3=0
-        HAVE_ACCELERATE=0
-        HAVE_JACK=0
-        HAVE_AVCODEC=0
-        USE_DOUBLE=0
+        HAVE_AUBIO_DOUBLE=0
         $<$<BOOL:${MSVC}>:_CRT_SECURE_NO_WARNINGS>
         $<$<BOOL:${MSVC}>:_USE_MATH_DEFINES>
 )
