@@ -108,6 +108,7 @@ private:
     juce::TextButton loadFxBtn { "Load FX" };
     juce::TextButton viewArrange { "Arrange" }, viewMixer { "Mixer" };
     juce::ToggleButton ampBypass { "Amp Bypass" };
+    juce::ToggleButton insaneBtn { "Insane" };
     juce::TextButton scanBtn { "Plugins" };
     juce::Label guitarVstLbl, trackVstLbl;
 

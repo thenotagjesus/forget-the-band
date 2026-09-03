@@ -2,8 +2,9 @@
 
 #include <JuceHeader.h>
 #include "DSP/Biquad.h"
+#include "DSP/SawviEngine.h"
 
-/** Modest guitar amp + IIR cab. Allocation-free after prepare. Not a multi-amp suite. */
+/** Modest guitar amp + IIR cab, or SAWVI insane high-gain on guitar input. */
 class AmpCab
 {
 public:
@@ -18,16 +19,22 @@ public:
     float getTone()  const noexcept { return tone.load  (std::memory_order_relaxed); }
     float getLevel() const noexcept { return level.load (std::memory_order_relaxed); }
 
-    /** Mono in, stereo out (tiny width delay on R). RT-safe. */
+    void setInsane (bool v) noexcept { insane.store (v ? 1 : 0, std::memory_order_relaxed); }
+    bool isInsane() const noexcept { return insane.load (std::memory_order_relaxed) != 0; }
+
+    /** Mono in, stereo out. RT-safe. Insane = SAWVI (both outs identical). Off = modest cab. */
     void process (const float* in, float* outL, float* outR, int numSamples) noexcept;
 
 private:
     void refreshCoeffs() noexcept;
+    void processModest (const float* in, float* outL, float* outR, int numSamples) noexcept;
+    void processInsane (const float* in, float* outL, float* outR, int numSamples) noexcept;
     static float waveshape (float x, float amount) noexcept;
 
     std::atomic<float> drive { 0.42f };
     std::atomic<float> tone  { 0.55f };
     std::atomic<float> level { 0.80f };
+    std::atomic<int>   insane { 1 };
 
     double sampleRate = 44100.0;
     Biquad preHp, preLp, midScoop, cabThump, cabCone, cabAir, postLp;
@@ -35,4 +42,6 @@ private:
     float delayLine[32] {};
     int delayIndex = 0;
     int delaySamples = 12;
+
+    sawvi::Engine sawviEngine;
 };

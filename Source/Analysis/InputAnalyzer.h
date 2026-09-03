@@ -136,7 +136,7 @@ private:
     std::atomic<float> confidence { 0.0f };
     std::atomic<int>   midiNote { -1 };
     std::atomic<int>   keyPc { 4 };
-    std::atomic<float> bpm { 112.0f };
+    std::atomic<float> bpm { 96.0f };
     std::atomic<float> activity { 0.0f };
     std::atomic<float> intensity { 0.35f };
     std::atomic<float> playerEnergy { 0.0f };
@@ -177,7 +177,7 @@ private:
     std::array<std::atomic<float>, 8> ioiSec {};
     std::atomic<int> ioiCount { 0 };
     std::atomic<int> ioiWrite { 0 };
-    float bpmSmoothed = 112.0f;
+    float bpmSmoothed = 96.0f;
     int bpmStableHops = 0;
 
     float rmsSmooth = 0.0f;

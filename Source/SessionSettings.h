@@ -67,7 +67,7 @@ namespace SessionSettings
         int  feel    = 0;   // Grid
         int  keyPc   = 4;   // E
         bool followKey = true;
-        float bpm    = 112.0f;
+        float bpm    = 96.0f;
         bool slew    = true; // tempo follows the player; false locks landing BPM
         int  phraseBars = 8;
 
@@ -125,7 +125,7 @@ namespace SessionSettings
             s.feel    = juce::jlimit (0, 3, xml.getIntAttribute ("feel",  1) - 1);
             s.keyPc   = juce::jlimit (0, 11, xml.getIntAttribute ("key", 5) - 1);
             s.followKey = xml.getIntAttribute ("autoKey", 1) != 0;
-            s.bpm     = (float) xml.getDoubleAttribute ("bpm", 112.0);
+            s.bpm     = (float) xml.getDoubleAttribute ("bpm", 96.0);
             s.phraseBars = xml.getIntAttribute ("phrase", 8);
             if (s.phraseBars <= 4) s.phraseBars = 4;
             else if (s.phraseBars >= 16) s.phraseBars = 16;

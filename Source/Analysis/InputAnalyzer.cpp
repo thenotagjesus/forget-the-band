@@ -471,11 +471,11 @@ void InputAnalyzer::updateTempoFromIoi() noexcept
         // 8ths/16ths misread as quarters still land above the pocket ceiling.
         if (est > 128.f)
             est *= 0.5f;
-        est = juce::jlimit (72.0f, 128.0f, est);
-        // Pocket clock: at most ~0.55 BPM per successful 4+ IOI consensus.
+        est = juce::jlimit (72.0f, 110.0f, est);
+        // Pocket clock: at most ~0.40 BPM per successful 4+ IOI consensus.
         // Never jump 20 BPM because a high-frequency onset fired.
-        const float delta = juce::jlimit (-0.55f, 0.55f, est - bpmSmoothed);
-        bpmSmoothed = juce::jlimit (72.0f, 128.0f, bpmSmoothed + delta);
+        const float delta = juce::jlimit (-0.40f, 0.40f, est - bpmSmoothed);
+        bpmSmoothed = juce::jlimit (72.0f, 110.0f, bpmSmoothed + delta);
 
         if (std::abs (est - bpmSmoothed) < 4.0f)
             ++bpmStableHops;

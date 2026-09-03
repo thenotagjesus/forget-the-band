@@ -100,7 +100,7 @@ SessionUI::SessionUI (SessionProcessor& processor, juce::AudioDeviceManager& dev
     addAndMakeVisible (brand);
 
     keyReadout.setText ("Key  E", juce::dontSendNotification);
-    bpmReadout.setText ("BPM  112", juce::dontSendNotification);
+    bpmReadout.setText ("BPM  96", juce::dontSendNotification);
     barReadout.setText ("1.1", juce::dontSendNotification);
     barReadout.setJustificationType (juce::Justification::centred);
     tunerNote.setText ("--", juce::dontSendNotification);
@@ -165,7 +165,7 @@ SessionUI::SessionUI (SessionProcessor& processor, juce::AudioDeviceManager& dev
 
     bpmLbl.setText ("BPM", juce::dontSendNotification);
     bpmSlider.setRange (60.0, 180.0, 1.0);
-    bpmSlider.setValue (112.0);
+    bpmSlider.setValue (96.0);
     bpmSlider.setSliderStyle (juce::Slider::LinearHorizontal);
     bpmSlider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 52, 20);
     addAndMakeVisible (bpmLbl);
@@ -242,7 +242,12 @@ SessionUI::SessionUI (SessionProcessor& processor, juce::AudioDeviceManager& dev
     viewArrange.setRadioGroupId (71);
     viewMixer.setRadioGroupId (71);
     viewArrange.setToggleState (true, juce::dontSendNotification);
+    ampBypass.setClickingTogglesState (true);
+    insaneBtn.setClickingTogglesState (true);
+    insaneBtn.setToggleState (true, juce::dontSendNotification);
+    insaneBtn.setTooltip ("Tight high-gain on guitar input; off = mild amp");
     addAndMakeVisible (ampBypass);
+    addAndMakeVisible (insaneBtn);
     addAndMakeVisible (scanBtn);
     guitarVstLbl.setText ("Guitar inserts", juce::dontSendNotification);
     trackVstLbl.setText ("Track inserts", juce::dontSendNotification);
@@ -605,6 +610,11 @@ void SessionUI::wireControls()
         proc.setAmpBypass (ampBypass.getToggleState());
         markDirty();
     };
+    insaneBtn.onClick = [this]
+    {
+        proc.getAmp().setInsane (insaneBtn.getToggleState());
+        markDirty();
+    };
     scanBtn.onClick = [this]
     {
 #if JUCE_WINDOWS
@@ -868,6 +878,7 @@ void SessionUI::applyToProcessor()
     proc.setBusLevel (SessionProcessor::Fx,     (float) fxStrip.level.getValue());
     proc.setBusLevel (SessionProcessor::Master, (float) masterStrip.level.getValue());
     proc.setAmpBypass (ampBypass.getToggleState());
+    proc.getAmp().setInsane (insaneBtn.getToggleState());
     proc.getBand().setForm ((FollowerBand::Form) juce::jmax (0, formBox.getSelectedId() - 1));
     proc.getBand().setScale ((FollowerBand::Scale) juce::jmax (0, scaleBox.getSelectedId() - 1));
     proc.getBand().setFeel ((FollowerBand::Feel) juce::jmax (0, feelBox.getSelectedId() - 1));
@@ -898,6 +909,7 @@ void SessionUI::loadSettings()
     gainSlider.setValue (xml->getDoubleAttribute ("gain", 0.0), juce::dontSendNotification);
     gateSlider.setValue (xml->getDoubleAttribute ("gate", 0.0), juce::dontSendNotification);
     driveSlider.setValue (xml->getDoubleAttribute ("drive", 0.42), juce::dontSendNotification);
+    insaneBtn.setToggleState (xml->getIntAttribute ("insane", 1) != 0, juce::dontSendNotification);
     toneSlider.setValue (xml->getDoubleAttribute ("tone", 0.55), juce::dontSendNotification);
     levelSlider.setValue (xml->getDoubleAttribute ("level", 0.80), juce::dontSendNotification);
     delaySlider.setValue (xml->getDoubleAttribute ("delay", 0.18), juce::dontSendNotification);
@@ -918,6 +930,7 @@ void SessionUI::saveSettings()
     xml.setAttribute ("gain",    gainSlider.getValue());
     xml.setAttribute ("gate",    gateSlider.getValue());
     xml.setAttribute ("drive",   driveSlider.getValue());
+    xml.setAttribute ("insane",  insaneBtn.getToggleState() ? 1 : 0);
     xml.setAttribute ("tone",    toneSlider.getValue());
     xml.setAttribute ("level",   levelSlider.getValue());
     xml.setAttribute ("delay",   delaySlider.getValue());
@@ -1267,6 +1280,7 @@ void SessionUI::resized()
     {
         ampLbl.setBounds (ampRow.removeFromTop (sx (16)));
         ampBypass.setBounds (ampLbl.getBounds().withX (ampLbl.getRight() + sx (8)).withWidth (sx (110)));
+        insaneBtn.setBounds (ampBypass.getBounds().withX (ampBypass.getRight() + sx (8)).withWidth (sx (80)));
         const int col = ampRow.getWidth() / 8;
         auto place = [this, col] (juce::Rectangle<int>& row, juce::Label& lab, juce::Slider& sl)
         {

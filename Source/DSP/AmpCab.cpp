@@ -1,9 +1,10 @@
 #include "DSP/AmpCab.h"
 
-void AmpCab::prepare (double sr, int)
+void AmpCab::prepare (double sr, int maxBlock)
 {
     sampleRate = sr > 1.0 ? sr : 44100.0;
     delaySamples = juce::jlimit (4, 31, (int) std::lround (0.00035 * sampleRate));
+    sawviEngine.prepare (sampleRate, maxBlock > 0 ? maxBlock : 512);
     reset();
     refreshCoeffs();
 }
@@ -15,6 +16,7 @@ void AmpCab::reset() noexcept
     toneTilt.reset();
     for (auto& s : delayLine) s = 0.0f;
     delayIndex = 0;
+    sawviEngine.reset();
 }
 
 float AmpCab::waveshape (float x, float amount) noexcept
@@ -41,11 +43,28 @@ void AmpCab::refreshCoeffs() noexcept
     toneTilt.setLP (sr, juce::jmap (t, 0.0f, 1.0f, 900.0f, 2800.0f));
 }
 
-void AmpCab::process (const float* in, float* outL, float* outR, int numSamples) noexcept
+void AmpCab::processInsane (const float* in, float* outL, float* outR, int numSamples) noexcept
 {
-    if (in == nullptr || outL == nullptr || outR == nullptr || numSamples <= 0)
-        return;
+    sawvi::Params p;
+    const float d = drive.load (std::memory_order_relaxed);
+    const float t = tone.load (std::memory_order_relaxed);
+    const float lvl = level.load (std::memory_order_relaxed);
+    // Bake SAWVI defaults; Drive scales Gain around the 0.72 voice.
+    p.gain   = juce::jlimit (0.0f, 1.0f, d * (0.72f / 0.42f));
+    p.mids   = juce::jlimit (0.0f, 1.0f, t);
+    p.output = juce::jlimit (0.0f, 1.0f, lvl * (0.50f / 0.80f));
+    sawviEngine.setParams (p);
 
+    for (int i = 0; i < numSamples; ++i)
+        outL[i] = in[i];
+    sawviEngine.process (outL, nullptr, numSamples);
+    if (outR != outL)
+        for (int i = 0; i < numSamples; ++i)
+            outR[i] = outL[i];
+}
+
+void AmpCab::processModest (const float* in, float* outL, float* outR, int numSamples) noexcept
+{
     refreshCoeffs();
     const float d = drive.load (std::memory_order_relaxed);
     const float lvl = level.load (std::memory_order_relaxed);
@@ -63,8 +82,8 @@ void AmpCab::process (const float* in, float* outL, float* outR, int numSamples)
         x = postLp.process (x);
 
         const float dark = toneTilt.process (x);
-        const float t = tone.load (std::memory_order_relaxed);
-        x = x * (0.45f + 0.55f * t) + dark * (0.55f - 0.35f * t);
+        const float tn = tone.load (std::memory_order_relaxed);
+        x = x * (0.45f + 0.55f * tn) + dark * (0.55f - 0.35f * tn);
         x *= lvl * 0.85f;
 
         delayLine[(size_t) delayIndex] = x;
@@ -75,4 +94,15 @@ void AmpCab::process (const float* in, float* outL, float* outR, int numSamples)
         outL[i] = x;
         outR[i] = r;
     }
+}
+
+void AmpCab::process (const float* in, float* outL, float* outR, int numSamples) noexcept
+{
+    if (in == nullptr || outL == nullptr || outR == nullptr || numSamples <= 0)
+        return;
+
+    if (insane.load (std::memory_order_relaxed) != 0)
+        processInsane (in, outL, outR, numSamples);
+    else
+        processModest (in, outL, outR, numSamples);
 }

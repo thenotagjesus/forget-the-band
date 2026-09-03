@@ -182,7 +182,7 @@ LandingScreen::LandingScreen (SessionProcessor& processor)
     addAndMakeVisible (slewToggle);
 
     bpmSlider.setRange (60.0, 180.0, 1.0);
-    bpmSlider.setValue (112.0);
+    bpmSlider.setValue (96.0);
     bpmSlider.setSliderStyle (juce::Slider::LinearHorizontal);
     bpmSlider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 52, 22);
     addAndMakeVisible (bpmSlider);
