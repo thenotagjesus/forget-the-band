@@ -34,6 +34,16 @@ namespace
         FollowerBand::DegI, FollowerBand::DegI, FollowerBand::DegbVI, FollowerBand::DegI,
         FollowerBand::DegbIII, FollowerBand::DegbVII, FollowerBand::DegI, FollowerBand::DegI
     };
+
+    // Keep Groove floors at 0.50 (pocket). Layer 0 is true silence / fade only.
+    // Player energy ADDS density; it never subtracts the backbeat.
+    inline int densityLayer (float inten) noexcept
+    {
+        return inten < 0.20f ? 0
+             : inten < 0.62f ? 1
+             : inten < 0.85f ? 2
+             : 3;
+    }
 }
 
 const char* FollowerBand::formName (int i)
@@ -550,7 +560,7 @@ int FollowerBand::pickBass (Style st, int step16, float inten, int deg, int upco
     const int nxt   = root + degreeSemitones (upcoming);
     const bool minor = degreeIsMinor (st, deg);
     const int third = minor ? 3 : 4;
-    const int layer = inten < 0.38f ? 0 : inten < 0.62f ? 1 : inten < 0.85f ? 2 : 3;
+    const int layer = densityLayer (inten);
     auto approach = [&]() -> int
     {
         const int prev = lastBassMidi;
@@ -558,26 +568,27 @@ int FollowerBand::pickBass (Style st, int step16, float inten, int deg, int upco
         return juce::jlimit (28, 64, nxt + 1);
     };
 
-    // Never silent on the downbeat.
-    if (step16 == 0)
-        return chord;
-
-    // rest: root on step 0 only
-    if (layer == 0)
+    // Pocket+ never silent on 0 / 4 / 8 / 12 (root, fifth, root, fifth).
+    if (layer >= 1)
+    {
+        if (step16 == 0 || step16 == 8)
+            return chord;
+        if (step16 == 4 || step16 == 12)
+            return chord + 7;
+    }
+    else
+    {
+        if (step16 == 0)
+            return chord;
         return -1;
+    }
 
     // fire: approach into the next chord on 14/15
     if (layer >= 3 && (step16 == 14 || step16 == 15))
         return approach();
 
-    // pocket+: root on 8, fifth on 4 and 12
-    if (step16 == 8)
-        return chord;
-    if (step16 == 4 || step16 == 12)
-        return chord + 7;
-
-    // fire: passing 8ths on the chord
-    if (layer >= 3 && (step16 % 2) == 0)
+    // push+: busier 8ths on the chord
+    if (layer >= 2 && (step16 % 2) == 0)
         return chord;
 
     // Funk/jazz extra syncopation at push/fire only.
@@ -597,12 +608,16 @@ int FollowerBand::pickBass (Style st, int step16, float inten, int deg, int upco
     return -1;
 }
 
-void FollowerBand::decideFill (Style /*st*/, float /*inten*/) noexcept
+void FollowerBand::decideFill (Style /*st*/, float inten) noexcept
 {
+    const int layer = densityLayer (inten);
     const int ph = juce::jmax (4, phraseBars.load (std::memory_order_relaxed));
     const bool phraseEnd = ((absBar + 1) % ph) == 0;
-    fillThisBar = (absBar % 8 == 7) || phraseEnd;
-    pendingCrash = (absBar % 8 == 0 && absBar > 0) || (absBar > 0 && (absBar % ph) == 0);
+    // Rest never fills. Pocket keeps the 8-bar phrase fill. Fire adds 4-bar fills.
+    fillThisBar = layer >= 1 && ((absBar % 8 == 7) || phraseEnd
+                                 || (layer >= 3 && (absBar % 4 == 3)));
+    pendingCrash = layer >= 1
+                   && ((absBar % 8 == 0 && absBar > 0) || (absBar > 0 && (absBar % ph) == 0));
     fillAtom.store (fillThisBar ? 1 : 0, std::memory_order_relaxed);
 }
 
@@ -710,8 +725,8 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
     const float velK = 0.87f, velS = 0.87f, velG = 0.28f, velH = 0.63f, velR = 0.63f, velO = 0.63f;
 
     // Density layers from intensity. Style only colours kick/snare placement
-    // and hat-open vs ride — never whether the kit exists.
-    const int layer = inten < 0.38f ? 0 : inten < 0.62f ? 1 : inten < 0.85f ? 2 : 3;
+    // and hat-open vs ride — never whether the kit exists at pocket+.
+    const int layer = densityLayer (inten);
 
     if (drumsLive && fillThisBar)
     {
@@ -739,58 +754,58 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
     }
     else if (drumsLive)
     {
-        // Always a real kit, never kick-only.
-        if (step16 == 0)
-            trigKick (velK);
-        if (layer >= 1 && step16 == 8)
-            trigKick (velK);
-        if (layer >= 3)
-        {
-            if (st == Style::Rock || st == Style::Metal)
-            {
-                if (step16 == 10) trigKick (velK * 0.75f);
-            }
-            else if (step16 == 6) // blues / funk / jazz
-                trigKick (velK * 0.75f);
-        }
-
-        if (layer == 0 && step16 == 8)
-            trigSnare (velS * 0.55f); // rest: light snare on 8
-        if (layer >= 1 && (step16 == 4 || step16 == 12))
-            trigSnare (velS);
-        if (layer >= 3 && (step16 == 3 || step16 == 7 || step16 == 11))
-            trigSnare (velG);
-
         if (layer == 0)
         {
-            if (step16 == 4 || step16 == 12)
-            {
-                if (st == Style::Jazz) trigRide (velR);
-                else trigHat (velH, false);
-            }
-        }
-        else if (st == Style::Jazz)
-        {
-            if (step16 == 0 || step16 == 4 || step16 == 8 || step16 == 12)
-                trigRide (velR);
-            if (even8)
-                trigHat (velH * 0.32f, false); // light hat under the ride
-            if (layer >= 2 && (step16 == 3 || step16 == 7 || step16 == 11 || step16 == 15))
-                trigRide (velR * 0.55f);
+            // True rest / fade: sparse kick + light hat. No backbeat.
+            if (step16 == 0)
+                trigKick (velK * 0.85f);
+            if (step16 == 8)
+                trigHat (velH * 0.55f, false);
         }
         else
         {
-            if (even8)
-                trigHat (velH, st == Style::Funk && layer >= 2 && (step16 == 14));
-            if (layer >= 3 && ! even8 && (st == Style::Metal || st == Style::Rock))
-                trigHat (velH * 0.70f, false);
-        }
+            // Pocket+ ALWAYS a real kit. Energy adds density; it never
+            // subtracts kick 1+3, snare 2+4, or even-8th hats (ride on jazz).
+            if (step16 == 0 || step16 == 8)
+                trigKick (velK);
+            if (layer >= 2)
+            {
+                if (st == Style::Rock || st == Style::Metal)
+                {
+                    if (step16 == 10) trigKick (velK * 0.75f);
+                    if (layer >= 3 && step16 == 6)
+                        trigKick (velK * 0.70f);
+                }
+                else if (step16 == 6) // blues / funk / jazz
+                    trigKick (velK * 0.75f);
+            }
 
-        if (layer >= 3 && step16 == 0 && (absBar % 8) == 0)
-        {
-            crashEnv = juce::jmax (crashEnv, 0.70f);
-            if (samples != nullptr && samples->isReady (SampleBank::Crash))
-                samples->play (SampleBank::Crash, 0.62f, 1.0f, 0);
+            if (step16 == 4 || step16 == 12)
+                trigSnare (velS);
+            if (layer >= 2 && (step16 == 3 || step16 == 7 || step16 == 11))
+                trigSnare (velG);
+
+            if (st == Style::Jazz)
+            {
+                if (step16 == 0 || step16 == 4 || step16 == 8 || step16 == 12)
+                    trigRide (velR);
+                if (layer >= 2 && (step16 == 3 || step16 == 7 || step16 == 11 || step16 == 15))
+                    trigRide (velR * 0.55f);
+            }
+            else
+            {
+                if (even8)
+                    trigHat (velH, st == Style::Funk && layer >= 2 && (step16 == 14));
+                if (layer >= 3 && ! even8 && (st == Style::Metal || st == Style::Rock))
+                    trigHat (velH * 0.70f, false);
+            }
+
+            if (layer >= 3 && step16 == 0 && (absBar % 8) == 0)
+            {
+                crashEnv = juce::jmax (crashEnv, 0.70f);
+                if (samples != nullptr && samples->isReady (SampleBank::Crash))
+                    samples->play (SampleBank::Crash, 0.62f, 1.0f, 0);
+            }
         }
     }
 

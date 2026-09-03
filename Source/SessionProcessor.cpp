@@ -552,7 +552,7 @@ void SessionProcessor::processDuplex (const float* const* inChannels, int numIns
             && fadeSilence.load (std::memory_order_relaxed) == 0
             && waitingNotes.load() == 0
             && countingIn.load() == 0)
-            be = juce::jmax (0.28f, be);
+            be = juce::jmax (0.50f, be); // Keep Groove = pocket (layer 1), not rest
         bandEnergy.store (be, std::memory_order_relaxed);
     }
     {
@@ -582,6 +582,21 @@ void SessionProcessor::processDuplex (const float* const* inChannels, int numIns
                   bL.data(), bR.data(),
                   kL.data(), kR.data(),
                   n);
+    // SAWVI Insane saturates near 0 dBFS. Lift the kit/bass/keys so the
+    // guitar does not sit ~12 dB over the band. Modest amp is already quieter.
+    const bool sawviLive = amp.isInsane()
+                           && ! guitarRack.isVstAmpActive()
+                           && ampBypass.load (std::memory_order_relaxed) == 0;
+    if (sawviLive)
+    {
+        const float lift = juce::Decibels::decibelsToGain (2.5f);
+        for (int i = 0; i < n; ++i)
+        {
+            dL[(size_t) i] *= lift; dR[(size_t) i] *= lift;
+            bL[(size_t) i] *= lift; bR[(size_t) i] *= lift;
+            kL[(size_t) i] *= lift; kR[(size_t) i] *= lift;
+        }
+    }
     fxChair.process (band.getStepInBar(),
                      band.getAbsBarIndex(),
                      band.getPhraseBars(),

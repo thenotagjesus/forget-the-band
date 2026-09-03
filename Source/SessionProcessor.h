@@ -149,7 +149,7 @@ private:
     std::atomic<int> waitingNotes { 0 };
     std::atomic<int> grooveFloor { 1 };
     std::atomic<int> fadeSilence { 0 };
-    std::atomic<float> bandEnergy { 0.35f };
+    std::atomic<float> bandEnergy { 0.50f };
 
     double sampleRate = 44100.0;
     int maxBlock = 512;

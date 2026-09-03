@@ -58,6 +58,11 @@ void AmpCab::processInsane (const float* in, float* outL, float* outR, int numSa
     for (int i = 0; i < numSamples; ++i)
         outL[i] = in[i];
     sawviEngine.process (outL, nullptr, numSamples);
+    // fastTanh limiter parks SAWVI near 0 dBFS. Sit with the kit (~-9 dB)
+    // so Insane guitar is not 12 dB over drums/bass/keys.
+    const float sit = 0.35f;
+    for (int i = 0; i < numSamples; ++i)
+        outL[i] *= sit;
     if (outR != outL)
         for (int i = 0; i < numSamples; ++i)
             outR[i] = outL[i];
