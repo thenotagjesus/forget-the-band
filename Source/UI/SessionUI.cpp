@@ -607,13 +607,74 @@ void SessionUI::wireControls()
     };
     scanBtn.onClick = [this]
     {
-        scanBtn.setEnabled (false);
-        scanBtn.setButtonText ("Scanning...");
-        proc.getPluginHost().scanDefaultVST3Paths ([this]
+#if JUCE_WINDOWS
+        const juce::File startDir ("C:/Program Files/Common Files/VST3");
+#else
+        const auto vstPaths = proc.getPluginHost().defaultVST3Paths();
+        const juce::File startDir = vstPaths.getNumPaths() > 0 ? vstPaths[0] : juce::File();
+#endif
+        auto chooser = std::make_shared<juce::FileChooser> (
+            "Load VST3 plugins", startDir, "*.vst3", true);
+        chooser->launchAsync (juce::FileBrowserComponent::openMode
+                              | juce::FileBrowserComponent::canSelectFiles
+                              | juce::FileBrowserComponent::canSelectDirectories
+                              | juce::FileBrowserComponent::canSelectMultipleItems,
+                              [this, chooser] (const juce::FileChooser& c)
         {
-            scanBtn.setEnabled (true);
-            scanBtn.setButtonText ("Plugins");
-            refreshPluginCombos();
+            auto files = c.getResults();
+            if (files.isEmpty())
+                return;
+
+            juce::StringArray beforeIds;
+            for (const auto& d : proc.getPluginHost().knownList.getTypes())
+                beforeIds.add (d.createIdentifierString());
+
+            scanBtn.setEnabled (false);
+            scanBtn.setButtonText ("Loading...");
+            proc.getPluginHost().importVst3Files (files, [this, beforeIds] (int added)
+            {
+                scanBtn.setEnabled (true);
+                scanBtn.setButtonText ("Plugins");
+                refreshPluginCombos();
+                if (added < 1)
+                {
+                    juce::NativeMessageBox::showMessageBoxAsync (
+                        juce::MessageBoxIconType::InfoIcon,
+                        "Plugins",
+                        "No VST3 found in that pick.");
+                    return;
+                }
+
+                juce::PluginDescription firstNew;
+                bool have = false;
+                for (const auto& d : proc.getPluginHost().knownList.getTypes())
+                {
+                    if (! beforeIds.contains (d.createIdentifierString()))
+                    {
+                        firstNew = d;
+                        have = true;
+                        break;
+                    }
+                }
+                if (! have)
+                    return;
+
+                auto& rack = proc.getGuitarRack();
+                int slot = 0;
+                for (int i = 0; i < PluginRack::NumSlots; ++i)
+                {
+                    if (rack.getSlotPluginName (i).isEmpty())
+                    {
+                        slot = i;
+                        break;
+                    }
+                }
+                const auto err = rack.loadPlugin (slot, firstNew);
+                if (err.isNotEmpty())
+                    juce::NativeMessageBox::showMessageBoxAsync (
+                        juce::MessageBoxIconType::WarningIcon, "VST3", err);
+                refreshPluginCombos();
+            });
         });
     };
     arrange.onSelectTrack = [this] (int t) { selectDawTrack (t); };

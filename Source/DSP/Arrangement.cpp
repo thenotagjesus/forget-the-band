@@ -153,37 +153,41 @@ void Arrangement::tick (const float chroma[12],
                         double stepAccum,
                         double samplesPer16th) noexcept
 {
-    int bestDeg = 0;
-    bool minor = false;
-    scoreTemplates (chroma, keyPc, style, bestDeg, minor);
-
     float energy = 0.0f;
     for (int i = 0; i < 12; ++i)
         energy += juce::jmax (0.0f, chroma[i]);
-    const float conf = juce::jlimit (0.0f, 1.0f, energy * 0.35f);
 
-    // Hysteresis: do not panic-modulate. Hold until a run of hops agrees,
-    // and require the new chord to beat the committed one.
-    if (bestDeg == pendingDeg)
-        ++pendingHops;
-    else
+    // Empty chroma must not force DegI every hop — keep the last committed degree.
+    if (energy >= 1.0e-3f)
     {
-        pendingDeg = bestDeg;
-        pendingHops = 0;
-    }
+        int bestDeg = 0;
+        bool minor = false;
+        scoreTemplates (chroma, keyPc, style, bestDeg, minor);
+        const float conf = juce::jlimit (0.0f, 1.0f, energy * 0.35f);
 
-    const bool barLock = (stepInBar <= 1 || stepInBar >= 14);
-    if (conf > 0.12f && pendingHops >= 8
-        && (pendingDeg != committedDeg)
-        && (conf > committedScore * 1.12f + 0.04f || pendingHops >= 24))
-    {
-        committedDeg = pendingDeg;
-        committedScore = conf;
-    }
-    if (barLock && conf > 0.18f && pendingHops >= 4)
-    {
-        committedDeg = pendingDeg;
-        committedScore = conf;
+        // Hysteresis: do not panic-modulate. Hold until a run of hops agrees,
+        // and require the new chord to beat the committed one.
+        if (bestDeg == pendingDeg)
+            ++pendingHops;
+        else
+        {
+            pendingDeg = bestDeg;
+            pendingHops = 0;
+        }
+
+        const bool barLock = (stepInBar <= 1 || stepInBar >= 14);
+        if (conf > 0.12f && pendingHops >= 8
+            && (pendingDeg != committedDeg)
+            && (conf > committedScore * 1.12f + 0.04f || pendingHops >= 24))
+        {
+            committedDeg = pendingDeg;
+            committedScore = conf;
+        }
+        if (barLock && conf > 0.18f && pendingHops >= 4)
+        {
+            committedDeg = pendingDeg;
+            committedScore = conf;
+        }
     }
 
     // Player sitting on IV must win over a canned I–bVII–IV bar of I.
@@ -199,16 +203,16 @@ void Arrangement::tick (const float chroma[12],
     followDeg.store (outDeg, std::memory_order_relaxed);
     followConf.store (outConf, std::memory_order_relaxed);
 
-    // Timing: lock 16th phase to player onsets. Elastic stepAccum, max slew
-    // applied by FollowerBand::applyPhaseNudge. Never replace BPM here.
-    // Real pick only — hiss/false aubio onsets must not yank the 16th grid.
-    if (onset && intensity > 0.28f && samplesPer16th > 32.0)
+    // Pocket clock: only nudge when the player is actually on, and only if
+    // the error is bigger than ~18% of a 16th. Tiny human errors stay.
+    // Never yank the clock back to beat 1.
+    if (onset && intensity > 0.35f && samplesPer16th > 32.0)
     {
         const double toPrev = stepAccum;
         const double toNext = stepAccum - samplesPer16th;
         const double nearest = (std::abs (toPrev) < std::abs (toNext)) ? toPrev : toNext;
-        // Onset should land on the grid. Pull accum toward 0 or samplesPer16th.
-        phaseNudge.store (-nearest, std::memory_order_relaxed);
+        if (std::abs (nearest) > samplesPer16th * 0.18)
+            phaseNudge.store (-nearest, std::memory_order_relaxed);
     }
 
     // User lobby chairs already gate drums/bass/keys via setMemberEnabled.

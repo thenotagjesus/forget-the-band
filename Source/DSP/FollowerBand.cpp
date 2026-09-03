@@ -539,9 +539,9 @@ int FollowerBand::pickBass (Style st, int step16, float inten, int deg, int upco
     const int root = 40 + ((keyPc % 12) + 12) % 12;
     const int chord = root + degreeSemitones (deg);
     const int nxt   = root + degreeSemitones (upcoming);
-    const int beat = step16 / 4;
     const bool minor = degreeIsMinor (st, deg);
     const int third = minor ? 3 : 4;
+    const int layer = inten < 0.22f ? 0 : inten < 0.45f ? 1 : inten < 0.72f ? 2 : 3;
     auto approach = [&]() -> int
     {
         const int prev = lastBassMidi;
@@ -549,50 +549,42 @@ int FollowerBand::pickBass (Style st, int step16, float inten, int deg, int upco
         return juce::jlimit (28, 64, nxt + 1);
     };
 
-    if (st == Style::Funk)
-    {
-        if (step16 == 0) return chord;
-        if (step16 == 6 || step16 == 12) return chord + 7;
-        if (step16 == 7 && inten >= 0.6f) return chord + 10;
-        if (step16 == 9 && inten >= 0.6f) return chord + 14;
-        if (step16 == 14 || (step16 == 15 && inten >= 0.9f)) return approach();
-        if (step16 == 3 && inten >= 0.3f) return chord;
-        if (step16 == 5 && inten >= 0.3f) return chord + 7;
-        if (step16 == 10 && inten >= 0.3f) return chord;
+    // Never silent on the downbeat.
+    if (step16 == 0)
+        return chord;
+
+    // rest: root on step 0 only
+    if (layer == 0)
         return -1;
-    }
-    if (st == Style::Jazz)
-    {
-        if (step16 % 4 != 0 && ! (inten >= 0.9f && (step16 == 2 || step16 == 10)))
-            return -1;
-        if (beat == 0) return chord;
-        if (beat == 1) return chord + (inten >= 0.6f ? third : 7);
-        if (beat == 2) return chord + (upcoming == DegV ? 9 : 7);
-        const float r = 0.5f + 0.5f * noise();
-        if (r < 0.70f) return juce::jlimit (28, 64, nxt - 1);
-        if (r < 0.90f) return juce::jlimit (28, 64, nxt + 1);
-        return chord + (r < 0.95f ? 2 : 11);
-    }
-    if (st == Style::Rock)
-    {
-        if (step16 == 0 || step16 == 8) return chord;
-        if (step16 == 4 || step16 == 12) return chord + 7;
-        if (inten >= 0.6f && (step16 % 2) == 0) return chord;
-        return -1;
-    }
-    if (st == Style::Blues)
-    {
-        if (step16 % 4 != 0 && ! (inten >= 0.9f && (barIndex % 4 == 3) && (step16 == 14)))
-            return (step16 == 14 && inten >= 0.9f) ? approach() : -1;
-        if (beat == 0) return chord;
-        if (beat == 1) return chord + third;
-        if (beat == 2) return chord + 7;
+
+    // fire: approach into the next chord on 14/15
+    if (layer >= 3 && (step16 == 14 || step16 == 15))
         return approach();
+
+    // pocket+: root on 8, fifth on 4 and 12
+    if (step16 == 8)
+        return chord;
+    if (step16 == 4 || step16 == 12)
+        return chord + 7;
+
+    // push/fire: passing 8ths on the chord
+    if (layer >= 2 && (step16 % 2) == 0)
+        return chord;
+
+    // Funk/jazz extra syncopation at push/fire only.
+    if (layer >= 2 && st == Style::Funk)
+    {
+        if (step16 == 3) return chord;
+        if (step16 == 5) return chord + 7;
+        if (step16 == 7 && layer >= 3) return chord + 10;
+        if (step16 == 9 && layer >= 3) return chord + 14;
+        if (step16 == 11) return chord + third;
     }
-    // Metal
-    if ((step16 % 4) == 0) return chord;
-    if ((step16 % 2) == 0) return (step16 / 2) % 2 ? chord + 7 : chord;
-    if (inten >= 0.9f && step16 == 15) return approach();
+    if (layer >= 2 && st == Style::Jazz)
+    {
+        if (step16 == 2 || step16 == 10) return chord + third;
+        if (layer >= 3 && (step16 == 6 || step16 == 11)) return chord + 7;
+    }
     return -1;
 }
 
@@ -708,116 +700,94 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
 
     const float velK = 0.87f, velS = 0.87f, velG = 0.28f, velH = 0.63f, velR = 0.63f, velO = 0.63f;
 
+    // Density layers from intensity. Style only colours kick/snare placement
+    // and hat-open vs ride — never whether the kit exists.
+    const int layer = inten < 0.22f ? 0 : inten < 0.45f ? 1 : inten < 0.72f ? 2 : 3;
+
     if (drumsLive && fillThisBar)
     {
         const int seed = absBar / 8;
         const int var = seed & 1;
-        const bool low = inten < 0.35f, med = inten >= 0.35f && inten <= 0.70f, high = inten > 0.70f;
+        const bool low = layer <= 1, med = layer == 2, high = layer >= 3;
         auto hitK = [&] (std::initializer_list<int> xs) { for (int x : xs) if (step16 == x) trigKick (velK); };
         auto hitS = [&] (std::initializer_list<int> xs, float v) { for (int x : xs) if (step16 == x) trigSnare (v); };
-        if (low && var == 0) { hitK ({0,10}); hitS ({12,13,14,15}, velS); if (even8) trigHat (velH * 0.7f, false); }
-        else if (low) { hitK ({0,8,12}); hitS ({4,14}, velS); if (even8) trigHat (velH * 0.7f, false); }
+        if (low && var == 0) { hitK ({0,10}); hitS ({12,13,14,15}, velS); }
+        else if (low) { hitK ({0,8,12}); hitS ({4,14}, velS); }
         else if (med && var == 0) { hitK ({8,14}); hitS ({0,1,3,4,5,11}, velG); hitS ({2,6,10,12,13,15}, velS); }
         else if (med) { hitK ({0,3,6,9,12,15}); hitS ({1,4,7,10,13,14}, velS); }
         else if (high && var == 0) { hitK ({6,12}); hitS ({1,3}, velG); hitS ({0,2,4,5,7,9,11,13,14,15}, velS); }
         else { hitK ({0,4,9,11,15}); hitS ({2,7}, velG); hitS ({1,3,6,8,10,12,13,14}, velS); }
 
+        // Fills are a real kit phrase: snare + kick + hat, not a single click.
+        if (even8)
+            trigHat (velH * (0.70f + 0.20f * inten), st == Style::Funk && (step16 == 14));
+        if (st == Style::Jazz && (step16 == 0 || step16 == 4 || step16 == 8 || step16 == 12))
+            trigRide (velR);
         if (st == Style::Funk && med && (step16 == 7 || step16 == 15))
             trigHat (velO, true);
-        if (st == Style::Jazz)
-        {
-            if (low && (step16 == 0 || step16 == 4 || step16 == 8 || step16 == 12))
-                trigRide (velR);
-            if (med && step16 <= 8 && (step16 % 4) == 0) trigRide (velR);
-            if (high && step16 >= 8 && step16 <= 11)
-                trigSnare ((step16 & 1) ? velS : velG);
-            if (high && step16 >= 12) trigSnare (velS);
-        }
-        if (st == Style::Metal && high && (step16 % 2) == 0)
+        if (st == Style::Metal && high && even8)
             trigKick (velK);
-        if (even8 && st != Style::Jazz) trigHat (0.22f + 0.2f * inten, false);
     }
-    else if (drumsLive && st == Style::Funk)
+    else if (drumsLive)
     {
-        bool kick[16] = {1,0,0,1,0,0,1,0,0,0,1,0,0,1,0,1};
-        bool gsn[16]  = {0,1,0,1,0,1,0,1,0,1,0,1,0,0,1,1};
-        bool acc[16]  = {0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0};
-        if (inten < 0.3f) { kick[3]=kick[10]=kick[13]=kick[15]=0; gsn[1]=gsn[5]=gsn[9]=0; }
-        if (inten >= 0.6f) { kick[6]=1; gsn[11]=1; }
-        if (inten >= 0.9f) kick[1]=1;
-        if (kick[step16]) trigKick (velK);
-        if (acc[step16]) trigSnare (velS);
-        else if (gsn[step16]) trigSnare (velG);
-        const bool eighths = inten < 0.3f;
-        const bool hatOn = eighths ? even8 : true;
-        if (hatOn) trigHat ((step16 % 4 == 0) ? velH + 0.03f : velH, step16 == 7 || step16 == 15);
-    }
-    else if (drumsLive && st == Style::Jazz)
-    {
-        if (step16 == 0) trigKick (velK * 0.55f);
-        if (step16 == 14 && inten >= 0.3f) trigKick (velK * 0.45f);
-        if (step16 == 7 && inten >= 0.3f) trigKick (0.28f);
-        if (step16 == 8 && inten >= 0.6f) trigKick (0.40f);
-        if (inten >= 0.9f && (step16 == 7 || step16 == 14)) trigKick (0.35f);
-        if (inten >= 0.3f)
+        // Always a real kit, never kick-only.
+        if (step16 == 0)
+            trigKick (velK);
+        if (layer >= 1 && step16 == 8)
+            trigKick (velK);
+        if (layer >= 2)
         {
-            if (step16 == 6) trigSnare (velS * 0.5f);
-            if (step16 == 3) trigSnare (velG);
-            if (inten >= 0.3f && (step16 == 9 || step16 == 14)) trigSnare (velG);
+            if (st == Style::Rock || st == Style::Metal)
+            {
+                if (step16 == 10) trigKick (velK * 0.75f);
+            }
+            else if (step16 == 6) // blues / funk / jazz
+                trigKick (velK * 0.75f);
         }
-        if (step16 == 4 || step16 == 12) trigHat (velH, false);
-        if (step16 == 0 || step16 == 4 || step16 == 8 || step16 == 12)
-            trigRide ((step16 == 4 || step16 == 12) ? velR * 0.85f : velR);
-        if (inten >= 0.3f && (step16 == 3 || step16 == 7 || step16 == 11 || step16 == 15))
-            trigRide (velR * 0.55f);
-    }
-    else if (drumsLive && st == Style::Rock)
-    {
-        if (step16 == 0 || step16 == 8) trigKick (velK);
-        if (inten >= 0.6f && step16 == 10) trigKick (velK * 0.7f);
-        if (inten >= 0.9f && (step16 == 6 || step16 == 14)) trigKick (velK * 0.65f);
-        if (step16 == 4 || step16 == 12) trigSnare (velS);
-        if (inten >= 0.9f && step16 == 3) trigSnare (velG);
-        if (inten >= 0.3f && even8) trigHat (velH, false);
-        if (inten >= 0.6f && ! even8) trigHat (velH * 0.7f, false);
-        if (inten > 0.85f && (absBar % 8) == 0 && step16 == 0)
-            crashEnv = juce::jmax (crashEnv, 0.70f);
-    }
-    else if (drumsLive && st == Style::Blues)
-    {
-        if (step16 == 0) trigKick (velK);
-        if (step16 == 6) trigKick (velK * 0.75f);
-        if (inten >= 0.6f && step16 == 14) trigKick (velK * 0.6f);
-        if (step16 == 4 || step16 == 12) trigSnare (velS);
-        if (inten >= 0.6f && (step16 == 3 || step16 == 7 || step16 == 11 || step16 == 15))
+        if (layer >= 3 && st == Style::Metal && even8)
+            trigKick (velK * 0.72f);
+
+        if (layer == 0 && step16 == 8)
+            trigSnare (velS * 0.55f); // rest: light snare on 8
+        if (layer >= 1 && (step16 == 4 || step16 == 12))
+            trigSnare (velS);
+        if (layer >= 2 && (step16 == 3 || step16 == 7 || step16 == 11))
             trigSnare (velG);
-        if (even8) trigHat (velH, false);
-        if (even8) trigRide (velR * 0.5f);
-        if (inten >= 0.9f && (barIndex % 12) == 0 && step16 == 0)
-            crashEnv = juce::jmax (crashEnv, 0.55f);
-    }
-    else if (drumsLive) // Metal
-    {
-        if (inten < 0.3f)
+
+        if (layer == 0)
         {
-            if (step16 == 0 || step16 == 8) trigKick (velK);
+            if (step16 == 4 || step16 == 12)
+            {
+                if (st == Style::Jazz) trigRide (velR);
+                else trigHat (velH, false);
+            }
+        }
+        else if (st == Style::Jazz)
+        {
+            if (step16 == 0 || step16 == 4 || step16 == 8 || step16 == 12)
+                trigRide (velR);
+            if (even8)
+                trigHat (velH * 0.32f, false); // light hat under the ride
+            if (layer >= 2 && (step16 == 3 || step16 == 7 || step16 == 11 || step16 == 15))
+                trigRide (velR * 0.55f);
         }
         else
         {
-            if (beat) trigKick (velK);
-            if (inten >= 0.6f && even8) trigKick (velK * 0.7f);
-            if (inten >= 0.9f && step16 == 15) trigKick (velK * 0.6f);
+            if (even8)
+                trigHat (velH, st == Style::Funk && layer >= 2 && (step16 == 14));
+            if (layer >= 2 && ! even8 && (st == Style::Metal || st == Style::Rock))
+                trigHat (velH * 0.70f, false);
         }
-        if (step16 == 4 || step16 == 12) trigSnare (velS);
-        if (inten >= 0.9f && step16 == 14) trigSnare (velS * 0.7f);
-        if (even8) trigHat (velH + 0.2f * inten, inten >= 0.6f && step16 == 14);
-        if (inten >= 0.6f && (barIndex % 4) == 0 && step16 == 0)
+
+        if (layer >= 3 && step16 == 0 && (absBar % 8) == 0)
+        {
             crashEnv = juce::jmax (crashEnv, 0.70f);
-        if (inten >= 0.9f && step16 == 0)
-            crashEnv = juce::jmax (crashEnv, 0.75f);
+            if (samples != nullptr && samples->isReady (SampleBank::Crash))
+                samples->play (SampleBank::Crash, 0.62f, 1.0f, 0);
+        }
     }
 
-    juce::ignoreUnused (beatN, trigTom);
+    juce::ignoreUnused (beat, beatN, trigTom);
 
     const int midi = bassLive ? pickBass (st, step16, inten, deg, upcoming, keyPc) : -1;
     if (midi >= 0)
@@ -843,26 +813,19 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
     bool keyHit = false;
     if (! keysLive)
         keyHit = false;
-    else if (st == Style::Funk)
-    {
-        keyHit = (step16 == 0) || (inten >= 0.3f && (step16 == 6 || step16 == 10 || step16 == 14));
-        if (inten < 0.3f) keyHit = (step16 == 0);
-        if (inten >= 0.6f && step16 == 8) keyHit = true;
-        if (inten >= 0.9f && step16 == 12) keyHit = true;
-    }
-    else if (st == Style::Jazz)
-    {
-        if (inten < 0.3f) keyHit = (step16 == 0);
-        else if (inten < 0.6f) keyHit = (step16 == 0 || step16 == 8);
-        else if (inten < 0.9f) keyHit = (step16 == 0 || step16 == 6 || step16 == 12);
-        else keyHit = (step16 == 0 || step16 == 4 || step16 == 8 || step16 == 12);
-    }
-    else if (st == Style::Rock)
-        keyHit = (step16 == 0 || step16 == 8)
-              || (inten >= 0.6f && step16 == 4)
-              || (inten >= 0.9f && step16 == 12);
-    else
+    else if (layer == 0)
         keyHit = (step16 == 0);
+    else if (layer == 1)
+        keyHit = (step16 == 0 || step16 == 8);
+    else if (layer == 2)
+        keyHit = (step16 == 0 || step16 == 4 || step16 == 8 || step16 == 12);
+    else
+    {
+        keyHit = (step16 == 0 || step16 == 4 || step16 == 8 || step16 == 12);
+        const int extra = (st == Style::Rock || st == Style::Metal) ? 10 : 6;
+        if (step16 == extra)
+            keyHit = true;
+    }
 
     if (keyHit)
     {

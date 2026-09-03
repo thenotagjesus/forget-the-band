@@ -469,7 +469,10 @@ void InputAnalyzer::updateTempoFromIoi() noexcept
         while (est > 180.0f) est *= 0.5f;
         while (est < 70.0f)  est *= 2.0f;
         est = juce::jlimit (70.0f, 180.0f, est);
-        bpmSmoothed = bpmSmoothed * 0.65f + est * 0.35f;
+        // Pocket clock: at most ~1.5 BPM per successful 4+ IOI consensus.
+        // Never jump 20 BPM because a high-frequency onset fired.
+        const float delta = juce::jlimit (-1.5f, 1.5f, est - bpmSmoothed);
+        bpmSmoothed = juce::jlimit (70.0f, 180.0f, bpmSmoothed + delta);
 
         if (std::abs (est - bpmSmoothed) < 4.0f)
             ++bpmStableHops;

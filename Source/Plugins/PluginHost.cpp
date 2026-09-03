@@ -98,3 +98,65 @@ void PluginHost::scanDefaultVST3Paths (std::function<void()> onFinished)
             juce::MessageManager::callAsync (onFinished);
     });
 }
+
+void PluginHost::importVst3Files (const juce::Array<juce::File>& files, std::function<void(int added)> onDone)
+{
+    if (scanning.exchange (1) != 0)
+    {
+        if (onDone)
+            juce::MessageManager::callAsync ([onDone] { onDone (0); });
+        return;
+    }
+
+    lastScanStatus = "Loading VST3…";
+    const auto picked = files;
+
+    juce::Thread::launch ([this, onDone, picked]
+    {
+        int added = 0;
+        juce::Array<juce::File> targets;
+
+        for (const auto& f : picked)
+        {
+            if (! f.exists())
+                continue;
+            if (f.isDirectory() && ! f.hasFileExtension ("vst3"))
+            {
+                juce::Array<juce::File> kids;
+                f.findChildFiles (kids, juce::File::findFilesAndDirectories, false, "*.vst3");
+                targets.addArray (kids);
+            }
+            else
+            {
+                targets.add (f);
+            }
+        }
+
+        for (const auto& t : targets)
+        {
+            const auto path = t.getFullPathName();
+            for (int i = 0; i < formatManager.getNumFormats(); ++i)
+            {
+                auto* fmt = formatManager.getFormat (i);
+                if (fmt == nullptr)
+                    continue;
+                juce::OwnedArray<juce::PluginDescription> types;
+                fmt->findAllTypesForFile (types, path);
+                for (auto* d : types)
+                {
+                    if (d != nullptr && knownList.addType (*d))
+                        ++added;
+                }
+            }
+        }
+
+        savePersistedList();
+        lastScanStatus = added > 0
+            ? ("Loaded " + juce::String (added) + " VST3")
+            : "No VST3 found";
+        scanning.store (0);
+        if (onDone)
+            juce::MessageManager::callAsync ([onDone, added] { onDone (added); });
+    });
+}
+

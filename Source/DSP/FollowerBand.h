@@ -7,7 +7,7 @@
 #include <atomic>
 #include <cstdint>
 
-/** Synthesized follower trio: drums, bass, keys. Original patterns. RT-safe process(). */
+/** Synthesized follower trio: drums, bass, keys. Live-session pocket. RT-safe process(). */
 class FollowerBand
 {
 public:

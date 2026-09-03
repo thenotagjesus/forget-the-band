@@ -15,6 +15,8 @@ public:
     juce::KnownPluginList knownList;
 
     void scanDefaultVST3Paths (std::function<void()> onFinished);
+    /** Import user-picked .vst3 files/folders off the message thread. onDone(addedCount). */
+    void importVst3Files (const juce::Array<juce::File>& files, std::function<void(int added)> onDone);
     bool isScanning() const noexcept { return scanning.load (std::memory_order_relaxed) != 0; }
     juce::String getLastScanStatus() const { return lastScanStatus; }
 
