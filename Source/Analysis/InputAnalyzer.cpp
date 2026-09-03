@@ -62,6 +62,8 @@ void InputAnalyzer::prepare (double sr)
     for (auto& v : ioiSec) v.store (0.0f);
     ioiCount.store (0);
     ioiWrite.store (0);
+    ioiConsensusN = 0;
+    onsetRateSmooth = 0.0f;
     lastEnergy = fluxAvg = 0.0f;
     samplesSinceOnset = 1.0e9;
     lastNoteOnSec = -1.0;
@@ -143,6 +145,7 @@ void InputAnalyzer::unlockBpm() noexcept
     bpmLocked.store (0, std::memory_order_relaxed);
     lockTempo.store (0, std::memory_order_relaxed);
     bpmStableHops = 0;
+    ioiConsensusN = 0;
 }
 
 void InputAnalyzer::setKeySeed (int pc) noexcept
@@ -158,6 +161,7 @@ void InputAnalyzer::setBpmSeed (float v) noexcept
     v = juce::jlimit (60.0f, 180.0f, v);
     bpm.store (v, std::memory_order_relaxed);
     bpmSmoothed = v;
+    ioiConsensusN = 0;
 }
 
 void InputAnalyzer::nudgeBpm (float delta) noexcept
@@ -428,6 +432,7 @@ void InputAnalyzer::updateTempo (float rms, int n) noexcept
     if (onset)
     {
         onsetFlag.store (1, std::memory_order_relaxed);
+        onsetRateSmooth = juce::jmin (8.0f, onsetRateSmooth + 1.0f);
         const float ioi = (float) (samplesSinceOnset / sampleRate);
         samplesSinceOnset = 0.0;
         pushIoi (ioi);
@@ -447,45 +452,46 @@ void InputAnalyzer::updateTempoFromIoi() noexcept
         return;
 
     const int count = ioiCount.load (std::memory_order_relaxed);
-    if (count >= 4)
+    if (count < 4)
+        return;
+
+    std::array<float, 8> tmp {};
+    const int used = juce::jmin (count, (int) tmp.size());
+    for (int i = 0; i < used; ++i)
+        tmp[(size_t) i] = ioiSec[(size_t) i].load (std::memory_order_relaxed);
+    std::sort (tmp.begin(), tmp.begin() + used);
+    const float median = tmp[(size_t) (used / 2)];
+    // Prefer quarter-note IOI. Fold double/half so 16th-rate does not stick.
+    float est = 60.0f / juce::jmax (0.22f, median);
+    const float cur = juce::jmax (60.0f, bpmSmoothed);
+    for (int k = 0; k < 4; ++k)
     {
-        std::array<float, 8> tmp {};
-        const int used = juce::jmin (count, (int) tmp.size());
-        for (int i = 0; i < used; ++i)
-            tmp[(size_t) i] = ioiSec[(size_t) i].load (std::memory_order_relaxed);
-        std::sort (tmp.begin(), tmp.begin() + used);
-        const float median = tmp[(size_t) (used / 2)];
-        float est = 60.0f / juce::jmax (0.22f, median);
-        const float cur = juce::jmax (60.0f, bpmSmoothed);
-        for (int k = 0; k < 4; ++k)
-        {
-            if (est > cur * 1.42f && est < cur * 2.65f)
-                est *= 0.5f;
-            else if (est < cur * 0.72f && est > cur * 0.36f)
-                est *= 2.0f;
-            else
-                break;
-        }
-        while (est > 180.0f) est *= 0.5f;
-        while (est < 70.0f)  est *= 2.0f;
-        // 8ths/16ths misread as quarters still land above the pocket ceiling.
-        if (est > 128.f)
+        if (est > cur * 1.42f && est < cur * 2.65f)
             est *= 0.5f;
-        est = juce::jlimit (72.0f, 110.0f, est);
-        // Pocket clock: at most ~0.40 BPM per successful 4+ IOI consensus.
-        // Never jump 20 BPM because a high-frequency onset fired.
-        const float delta = juce::jlimit (-0.40f, 0.40f, est - bpmSmoothed);
-        bpmSmoothed = juce::jlimit (72.0f, 110.0f, bpmSmoothed + delta);
-
-        if (std::abs (est - bpmSmoothed) < 4.0f)
-            ++bpmStableHops;
+        else if (est < cur * 0.72f && est > cur * 0.36f)
+            est *= 2.0f;
         else
-            bpmStableHops = juce::jmax (0, bpmStableHops - 2);
-
-        bpmConfident.store (bpmStableHops >= 12 ? 1 : 0, std::memory_order_relaxed);
-        // Auto BPM never freezes — Lock Tempo is the only freeze.
-        bpm.store (bpmSmoothed, std::memory_order_relaxed);
+            break;
     }
+    while (est > 140.0f) est *= 0.5f;
+    while (est <  60.0f) est *= 2.0f;
+    est = juce::jlimit (60.0f, 140.0f, est);
+
+    // First ~8 stable IOI consensus: snap with a bigger cap so 96→88 catches
+    // in a couple of seconds. After lock-in, slew ±1.2 BPM.
+    const bool catching = (ioiConsensusN < 8);
+    const float cap = catching ? 8.0f : 1.2f;
+    const float delta = juce::jlimit (-cap, cap, est - bpmSmoothed);
+    bpmSmoothed = juce::jlimit (60.0f, 140.0f, bpmSmoothed + delta);
+    ++ioiConsensusN;
+
+    if (std::abs (est - bpmSmoothed) < 4.0f)
+        ++bpmStableHops;
+    else
+        bpmStableHops = juce::jmax (0, bpmStableHops - 2);
+
+    bpmConfident.store (bpmStableHops >= 8 ? 1 : 0, std::memory_order_relaxed);
+    bpm.store (bpmSmoothed, std::memory_order_relaxed);
 }
 
 void InputAnalyzer::maybeLock() noexcept
@@ -541,13 +547,15 @@ void InputAnalyzer::analyseWindow (const float* x, int n) noexcept
     }
     updateTempo (rmsSmooth, n);
 
+    onsetRateSmooth *= 0.985f;
+    const float busy = juce::jlimit (0.0f, 1.0f, (onsetRateSmooth - 0.5f) / 4.0f);
     const float onsetBusy = juce::jlimit (0.0f, 1.0f, (float) ioiCount.load (std::memory_order_relaxed) / 8.0f);
     const float loud = juce::jlimit (0.0f, 1.0f, rmsSmooth * 3.2f);
-    const float act = 0.55f * loud + 0.45f * onsetBusy;
+    const float act = 0.40f * loud + 0.25f * onsetBusy + 0.35f * busy;
     activitySmooth = activitySmooth * 0.80f + act * 0.20f;
     activity.store (activitySmooth, std::memory_order_relaxed);
 
-    float player = activitySmooth;
+    float player = juce::jmax (activitySmooth, busy);
     if (calibrated.load (std::memory_order_relaxed) != 0)
     {
         const float a = calSoft.load(), b = calMid.load(), c = calHard.load();
@@ -557,6 +565,7 @@ void InputAnalyzer::analyseWindow (const float* x, int n) noexcept
         else player = 1.0f;
         player = juce::jlimit (0.0f, 1.0f, 0.7f * player + 0.3f * onsetBusy);
     }
+    player = juce::jmax (player, busy);
     playerEnergy.store (player, std::memory_order_relaxed);
     // pitched OR loud activity (strum / unpitched / noise floor above hiss)
     if ((rmsSmooth > 0.006f && conf > 0.22f && hz >= kMinHz && hz <= kMaxHz)
@@ -930,10 +939,14 @@ void InputAnalyzer::applyBandState (bool onset, float rms, bool fromBasicPitch) 
     // - YIN midiNote still drives transcription + solo HUD
     juce::ignoreUnused (fromBasicPitch);
 
+    onsetRateSmooth *= 0.985f;
+    if (onset)
+        onsetRateSmooth = juce::jmin (8.0f, onsetRateSmooth + 1.0f);
+    const float busy = juce::jlimit (0.0f, 1.0f, (onsetRateSmooth - 0.5f) / 4.0f);
     const float onsetBusy = juce::jlimit (0.0f, 1.0f,
         (float) ioiCount.load (std::memory_order_relaxed) / 8.0f);
     const float loud = juce::jlimit (0.0f, 1.0f, rmsSmooth * 3.2f);
-    const float act = 0.55f * loud + 0.45f * onsetBusy;
+    const float act = 0.40f * loud + 0.25f * onsetBusy + 0.35f * busy;
     activitySmooth = activitySmooth * 0.80f + act * 0.20f;
     activity.store (activitySmooth, std::memory_order_relaxed);
 
@@ -941,10 +954,10 @@ void InputAnalyzer::applyBandState (bool onset, float rms, bool fromBasicPitch) 
     {
         onsetFlag.store (1, std::memory_order_relaxed);
         if (lockIntensity.load (std::memory_order_relaxed) == 0)
-            intensitySmooth = juce::jmin (1.0f, intensitySmooth + 0.012f);
+            intensitySmooth = juce::jmin (1.0f, intensitySmooth + 0.020f);
     }
 
-    float player = activitySmooth;
+    float player = juce::jmax (activitySmooth, busy);
     if (calibrated.load (std::memory_order_relaxed) != 0)
     {
         const float a = calSoft.load(), b = calMid.load(), c = calHard.load();
@@ -954,6 +967,7 @@ void InputAnalyzer::applyBandState (bool onset, float rms, bool fromBasicPitch) 
         else player = 1.0f;
         player = juce::jlimit (0.0f, 1.0f, 0.7f * player + 0.3f * onsetBusy);
     }
+    player = juce::jmax (player, busy);
     playerEnergy.store (player, std::memory_order_relaxed);
 
     const float conf = confidence.load (std::memory_order_relaxed);

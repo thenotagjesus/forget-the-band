@@ -179,6 +179,8 @@ private:
     std::atomic<int> ioiWrite { 0 };
     float bpmSmoothed = 96.0f;
     int bpmStableHops = 0;
+    int ioiConsensusN = 0;
+    float onsetRateSmooth = 0.0f;
 
     float rmsSmooth = 0.0f;
     float activitySmooth = 0.0f;

@@ -180,12 +180,14 @@ void FollowerBand::prepare (double sr, SampleBank* bank)
     keyLp.setLowPass (fsr, 2400.0f, 0.65f);
     tomBp.setPeaking (fsr, 220.0f, 0.85f, 5.0f);
     kickHp.setHighPass (fsr, 28.0f, 0.70f);
+    drumEngine.prepare (sampleRate, samples);
     reset();
 }
 
 void FollowerBand::reset() noexcept
 {
     hatHp.reset(); snareBp.reset(); bassLp.reset(); keyLp.reset(); tomBp.reset(); kickHp.reset();
+    drumEngine.reset();
     kickEnv = snareEnv = hatEnv = rideEnv = crashEnv = tomEnv = 0;
     kickPhase = snareTonePhase = hatPhase = ridePhase = tomPhase = 0;
     kickClick = 0;
@@ -204,7 +206,7 @@ void FollowerBand::reset() noexcept
     fillThisBar = false;
     pendingCrash = false;
     followDeg.store (-1, std::memory_order_relaxed);
-    thinMask.store (0x7, std::memory_order_relaxed);
+    thinMask.store (0x1, std::memory_order_relaxed);
     step = 0;
     stepAccum = 0.0;
     fireImmediate = true; // one downbeat, not a catch-up flood
@@ -634,79 +636,6 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
     const auto kv  = (KeysVoice) juce::jlimit (0, (int) KeysVoice::NumVoices - 1,
                                               keysVoice.load (std::memory_order_relaxed));
 
-    auto kickSlot = [&]() -> int
-    {
-        if (kit == DrumKit::Funk)  return SampleBank::KickFunk;
-        if (kit == DrumKit::Metal) return SampleBank::KickMetal;
-        return SampleBank::KickAcoustic;
-    };
-    auto snareSlot = [&]() -> int
-    {
-        if (kit == DrumKit::Funk)  return SampleBank::SnareFunk;
-        if (kit == DrumKit::Metal) return SampleBank::SnareMetal;
-        return SampleBank::SnareAcoustic;
-    };
-    auto hatSlot = [&]() -> int
-    {
-        if (kit == DrumKit::Funk)  return SampleBank::HatFunk;
-        if (kit == DrumKit::Metal) return SampleBank::HatMetal;
-        return SampleBank::HatAcoustic;
-    };
-    auto playDrum = [&] (int slot, float vel)
-    {
-        if (samples != nullptr && samples->isReady (slot))
-            samples->play (slot, vel, 1.0f, 0);
-        return samples != nullptr && samples->isReady (slot);
-    };
-
-    auto trigKick = [&] (float vel)
-    {
-        const bool sampled = playDrum (kickSlot(), vel);
-        const float sv = sampled ? vel * 0.22f : vel;
-        kickEnv = juce::jmax (kickEnv, sv);
-        switch (kit)
-        {
-            case DrumKit::Metal:    kickHz = 158.0f; kickClick = juce::jmax (kickClick, sv * 1.45f); break;
-            case DrumKit::Jazz:     kickHz = 72.0f;  break;
-            case DrumKit::Funk:     kickHz = 108.0f; break;
-            case DrumKit::Electro:  kickHz = 82.0f;  break;
-            default:                kickHz = 90.0f;  break;
-        }
-        kickPhase = 0;
-    };
-    auto trigSnare = [&] (float vel)
-    {
-        const bool sampled = playDrum (snareSlot(), vel);
-        snareEnv = juce::jmax (snareEnv, sampled ? vel * 0.22f : vel);
-        snareTonePhase = 0;
-    };
-    auto trigHat = [&] (float vel, bool open)
-    {
-        const float hv = vel * (0.82f + 0.18f * (0.5f + 0.5f * noise()));
-        const bool sampled = playDrum (hatSlot(), hv);
-        hatEnv = juce::jmax (hatEnv, sampled ? hv * 0.20f : hv);
-        hatOpen = open;
-        switch (kit)
-        {
-            case DrumKit::Metal:    hatDecayUse = open ? 0.9974f : 0.9935f; break;
-            case DrumKit::Jazz:     hatDecayUse = open ? 0.9992f : 0.9978f; break;
-            case DrumKit::Funk:     hatDecayUse = open ? 0.9988f : 0.9948f; break;
-            case DrumKit::Electro:  hatDecayUse = open ? 0.9975f : 0.9905f; break;
-            default:                hatDecayUse = open ? 0.99935f : 0.9974f; break;
-        }
-    };
-    auto trigRide = [&] (float vel)
-    {
-        rideEnv = juce::jmax (rideEnv, vel);
-        ridePhase = 0;
-    };
-    auto trigTom = [&] (float vel, float hz)
-    {
-        tomEnv = juce::jmax (tomEnv, vel);
-        tomHz = hz;
-        tomPhase = 0;
-    };
-
     const int thin = thinMask.load (std::memory_order_relaxed);
     const bool drumsLive = drumsOn.load (std::memory_order_relaxed) != 0 && (thin & 0x1) != 0;
     const bool bassLive  = bassOn.load (std::memory_order_relaxed) != 0 && (thin & 0x2) != 0;
@@ -715,101 +644,107 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
     crashAtom.store (0, std::memory_order_relaxed);
     if (drumsLive && step16 == 0 && pendingCrash)
     {
-        crashEnv = 0.88f;
+        drumEngine.trigCrash (0.88f);
         crashAtom.store (1, std::memory_order_relaxed);
-        if (samples != nullptr && samples->isReady (SampleBank::Crash))
-            samples->play (SampleBank::Crash, 0.72f, 1.0f, 0);
         pendingCrash = false;
     }
 
-    const float velK = 0.87f, velS = 0.87f, velG = 0.28f, velH = 0.63f, velR = 0.63f, velO = 0.63f;
+    // Velocity tracks player intensity: loud player = louder backbeat, not just busier.
+    const float velK = 0.62f + 0.38f * inten;
+    const float velS = 0.58f + 0.42f * inten;
+    const float velG = 0.18f + 0.12f * inten;
+    const float velH = 0.48f + 0.32f * inten;
+    const float velR = 0.55f + 0.28f * inten;
+    const float velO = 0.50f + 0.30f * inten;
+    const float hatJ = 0.90f + 0.20f * (0.5f + 0.5f * noise()); // ±10%
 
-    // Density layers from intensity. Style only colours kick/snare placement
-    // and hat-open vs ride — never whether the kit exists at pocket+.
     const int layer = densityLayer (inten);
 
     if (drumsLive && fillThisBar)
     {
-        const int seed = absBar / 8;
-        const int var = seed & 1;
-        const bool low = layer <= 1, med = layer == 2, high = layer >= 3;
-        auto hitK = [&] (std::initializer_list<int> xs) { for (int x : xs) if (step16 == x) trigKick (velK); };
-        auto hitS = [&] (std::initializer_list<int> xs, float v) { for (int x : xs) if (step16 == x) trigSnare (v); };
-        if (low) { hitK ({0,8}); hitS ({4,12,14}, velS); }
-        else if (med && var == 0) { hitK ({8,14}); hitS ({0,1,3,4,5,11}, velG); hitS ({2,6,10,12,13,15}, velS); }
-        else if (med) { hitK ({0,3,6,9,12,15}); hitS ({1,4,7,10,13,14}, velS); }
-        else if (high && var == 0) { hitK ({6,12}); hitS ({1,3}, velG); hitS ({0,2,4,5,7,9,11,13,14,15}, velS); }
-        else { hitK ({0,4,9,11,15}); hitS ({2,7}, velG); hitS ({1,3,6,8,10,12,13,14}, velS); }
-
-        // Fills are a real kit phrase: snare + kick + hat, not a single click.
-        // Low fill: hats on even 8ths only (no 16th snare dump, no extra kit).
-        if (even8)
-            trigHat (velH * (0.70f + 0.20f * inten), st == Style::Funk && (step16 == 14));
-        if (! low && st == Style::Jazz && (step16 == 0 || step16 == 4 || step16 == 8 || step16 == 12))
-            trigRide (velR);
-        if (st == Style::Funk && med && (step16 == 7 || step16 == 15))
-            trigHat (velO, true);
-        if (st == Style::Metal && high && even8)
-            trigKick (velK);
+        // Pocket through the bar, then last 4 16ths: tom run + snare build.
+        // NEVER a single click.
+        if (step16 == 0 || step16 == 8)
+            drumEngine.trigKick (velK);
+        if (step16 == 4)
+            drumEngine.trigSnare (velS);
+        if (even8 && step16 < 12)
+        {
+            if (st == Style::Jazz)
+                drumEngine.trigRide (velR);
+            else
+                drumEngine.trigHat (velH * hatJ, false);
+        }
+        if (step16 == 12) { drumEngine.trigTom (0, velK); drumEngine.trigSnare (velG, true); }
+        if (step16 == 13) { drumEngine.trigTom (1, velK * 0.95f); drumEngine.trigSnare (velS * 0.75f); }
+        if (step16 == 14) { drumEngine.trigTom (2, velK * 0.92f); drumEngine.trigSnare (velS * 0.90f); }
+        if (step16 == 15)   drumEngine.trigSnare (velS);
     }
     else if (drumsLive)
     {
         if (layer == 0)
         {
-            // True rest / fade: sparse kick + light hat. No backbeat.
+            // Rest: kick on 1 + light hat on 1 and 3 only.
             if (step16 == 0)
-                trigKick (velK * 0.85f);
-            if (step16 == 8)
-                trigHat (velH * 0.55f, false);
+                drumEngine.trigKick (velK * 0.85f);
+            if (step16 == 0 || step16 == 8)
+                drumEngine.trigHat (velH * 0.45f, false);
         }
         else
         {
-            // Pocket+ ALWAYS a real kit. Energy adds density; it never
-            // subtracts kick 1+3, snare 2+4, or even-8th hats (ride on jazz).
+            // Pocket floor: kick 0+8, snare 4+12, closed hats even 8ths (ride on jazz beats).
             if (step16 == 0 || step16 == 8)
-                trigKick (velK);
+                drumEngine.trigKick (velK);
+            if (step16 == 4 || step16 == 12)
+                drumEngine.trigSnare (velS);
+
+            // Push (0.62): ghost snares on 3 and 11, extra kick on 6 or 10 by style, open hat 14.
             if (layer >= 2)
             {
                 if (st == Style::Rock || st == Style::Metal)
                 {
-                    if (step16 == 10) trigKick (velK * 0.75f);
-                    if (layer >= 3 && step16 == 6)
-                        trigKick (velK * 0.70f);
+                    if (step16 == 10)
+                        drumEngine.trigKick (velK * 0.78f);
                 }
-                else if (step16 == 6) // blues / funk / jazz
-                    trigKick (velK * 0.75f);
+                else if (step16 == 6)
+                    drumEngine.trigKick (velK * 0.78f);
+                if (step16 == 3 || step16 == 11)
+                    drumEngine.trigSnare (velG, true);
             }
 
-            if (step16 == 4 || step16 == 12)
-                trigSnare (velS);
-            if (layer >= 2 && (step16 == 3 || step16 == 7 || step16 == 11))
-                trigSnare (velG);
+            // Fire (0.85): 16th hats rock/metal, four-on-floor extra kicks metal, more ghosts.
+            if (layer >= 3)
+            {
+                if (st == Style::Metal && (step16 == 4 || step16 == 12))
+                    drumEngine.trigKick (velK * 0.70f);
+                if (step16 == 7 || step16 == 15)
+                    drumEngine.trigSnare (velG * 0.85f, true);
+            }
 
             if (st == Style::Jazz)
             {
                 if (step16 == 0 || step16 == 4 || step16 == 8 || step16 == 12)
-                    trigRide (velR);
+                    drumEngine.trigRide (velR);
                 if (layer >= 2 && (step16 == 3 || step16 == 7 || step16 == 11 || step16 == 15))
-                    trigRide (velR * 0.55f);
+                    drumEngine.trigRide (velR * 0.50f);
             }
             else
             {
                 if (even8)
-                    trigHat (velH, st == Style::Funk && layer >= 2 && (step16 == 14));
+                    drumEngine.trigHat (velH * hatJ, false);
                 if (layer >= 3 && ! even8 && (st == Style::Metal || st == Style::Rock))
-                    trigHat (velH * 0.70f, false);
+                    drumEngine.trigHat (velH * 0.70f * hatJ, false);
+                if (layer >= 2 && step16 == 14)
+                    drumEngine.trigHat (velO * hatJ, true);
             }
 
             if (layer >= 3 && step16 == 0 && (absBar % 8) == 0)
-            {
-                crashEnv = juce::jmax (crashEnv, 0.70f);
-                if (samples != nullptr && samples->isReady (SampleBank::Crash))
-                    samples->play (SampleBank::Crash, 0.62f, 1.0f, 0);
-            }
+                drumEngine.trigCrash (0.70f);
         }
     }
 
-    juce::ignoreUnused (beat, beatN, trigTom);
+    juce::ignoreUnused (beat, beatN, kit);
+
 
     const int midi = bassLive ? pickBass (st, step16, inten, deg, upcoming, keyPc) : -1;
     if (midi >= 0)
@@ -885,7 +820,7 @@ void FollowerBand::applyPhaseNudge (double deltaSamples) noexcept
 {
     if (samplesPer16th <= 1.0)
         return;
-    const double maxSlew = samplesPer16th * 0.10; // 10% of a 16th per block
+    const double maxSlew = samplesPer16th * 0.25; // up to 25% of a 16th per onset
     stepAccum += juce::jlimit (-maxSlew, maxSlew, deltaSamples);
 }
 
@@ -913,6 +848,7 @@ void FollowerBand::process (int keyPc,
     if (timbreStamp != lastTimbreStamp)
     {
         applyTimbre (kit, bv, kv);
+        drumEngine.setKit ((int) kit);
         lastTimbreStamp = timbreStamp;
     }
     const float bpmClamped = juce::jlimit (60.0f, 180.0f, bpmIn);
@@ -1010,51 +946,11 @@ void FollowerBand::process (int keyPc,
             }
         }
 
-        // --- drums (Style = pattern, DrumKit = timbre) ---
-        kickHz *= kickPitchRate;
-        if (kickHz < kickFloorHz) kickHz = kickFloorHz;
-        float kick = oscSin (kickPhase, kickHz) * kickEnv
-                   + kickNoiseAmt * noise() * kickEnv * kickEnv;
-        kick += kickClick * noise() * 0.45f;
-        kick = kickHp.process (kick);
-        kickClick *= 0.94f;
-        kickEnv *= kickDecay;
+        // --- drums (DrumEngine: body + sample layer + bus) ---
+        float dL = 0.0f, dR = 0.0f;
+        drumEngine.render (dL, dR);
 
-        float snN = snareBp.process (noise());
-        float sn = snN * snareEnv;
-        if (snareToneAmt > 0.001f)
-            sn += snareToneAmt * oscSin (snareTonePhase, snareToneHz) * snareEnv;
-        else
-            sn += 0.18f * snN * snareEnv; // electro clap-ish extra noise
-        snareEnv *= snareDecay;
-
-        const float hatNoise = hatHp.process (noise());
-        float hat = hatNoise * hatEnv * (hatOpen ? 1.15f : 1.0f) * hatGain;
-        hatEnv *= hatDecayUse;
-        crashEnv *= 0.99972f;
-        const float crash = hatNoise * crashEnv + 0.08f * oscSin (hatPhase, 620.0f) * crashEnv;
-
-        rideEnv *= 0.99885f;
-        const float rFund = oscSin (ridePhase, 1540.0f);
-        const float ride = (0.42f * rFund
-                          + 0.22f * std::sin (juce::MathConstants<float>::twoPi * ridePhase * 1.5f)
-                          + 0.18f * hatNoise) * rideEnv * rideGain;
-
-        tomHz *= 0.9994f;
-        if (tomHz < 80.0f) tomHz = 80.0f;
-        const float tom = (oscSin (tomPhase, tomHz) * 0.85f + tomBp.process (noise()) * 0.18f) * tomEnv;
-        tomEnv *= 0.99905f;
-
-        kickEnv  = juce::jmin (kickEnv,  1.0f);
-        snareEnv = juce::jmin (snareEnv, 1.0f);
-        hatEnv   = juce::jmin (hatEnv,   0.85f);
-        crashEnv = juce::jmin (crashEnv, 0.70f);
-        rideEnv  = juce::jmin (rideEnv,  0.80f);
-        tomEnv   = juce::jmin (tomEnv,   1.0f);
-        float dL = kick * 0.82f + sn * 0.90f + hat * 0.42f + crash * 0.18f + ride * 0.22f + tom * 0.55f;
-        float dR = kick * 0.78f + sn * 0.94f + hat * 0.44f + crash * 0.20f + ride * 0.24f + tom * 0.50f;
-
-        // --- bass ---
+                // --- bass ---
         float saw = oscSaw (bassPhase, bassHz);
         const float sqr = saw >= 0.0f ? 1.0f : -1.0f;
         float sub = oscSin (subPhase, bassHz * 0.5f);
@@ -1113,13 +1009,10 @@ void FollowerBand::process (int keyPc,
         const float gk = g * keysGain;
         if (samples != nullptr)
         {
-            float dS = 0, bS = 0, kS = 0, z = 0;
-            samples->mix (0, dS, z);
-            z = 0;
+            float bS = 0, kS = 0, z = 0;
             samples->mix (2, bS, z);
             z = 0;
             samples->mix (3, kS, z);
-            dL += dS; dR += dS * 0.96f;
             bs += bS;
             kMix += kS; kMixR += kS * 0.92f;
         }

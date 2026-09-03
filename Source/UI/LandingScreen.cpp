@@ -16,6 +16,8 @@ void LandingScreen::ChairCard::setSeated (bool v)
 
 void LandingScreen::ChairCard::mouseUp (const juce::MouseEvent& e)
 {
+    if (kind == Drums)
+        return; // drums-only drop: always seated
     if (! getLocalBounds().contains (e.getPosition()))
         return;
     seated = ! seated;
@@ -116,7 +118,7 @@ LandingScreen::LandingScreen (SessionProcessor& processor)
     subtitle.setText ("Who's in the room?", juce::dontSendNotification);
     subtitle.setColour (juce::Label::textColourId, juce::Colour (SessionLookAndFeel::kText));
     subtitle.setJustificationType (juce::Justification::centred);
-    rosterLbl.setText ("Click a chair to seat or empty it. Empty chairs make no sound.",
+    rosterLbl.setText ("Drums in the room. Bass, keys, and FX sit this round.",
                        juce::dontSendNotification);
     rosterLbl.setColour (juce::Label::textColourId, juce::Colour (SessionLookAndFeel::kMuted));
     rosterLbl.setJustificationType (juce::Justification::centred);
@@ -137,15 +139,11 @@ LandingScreen::LandingScreen (SessionProcessor& processor)
         addAndMakeVisible (c);
     };
     bindChair (drumsCard);
-    bindChair (bassCard);
-    bindChair (keysCard);
-    bindChair (fxCard);
+    drumsCard.setSeated (true);
+    juce::ignoreUnused (bassCard, keysCard, fxCard);
 
     fillVoiceBoxes();
     addAndMakeVisible (drumsKitBox);
-    addAndMakeVisible (bassVoiceBox);
-    addAndMakeVisible (keysVoiceBox);
-    addAndMakeVisible (fxVoiceBox);
 
     styleLbl.setText ("Style", juce::dontSendNotification);
     formLbl.setText ("Form", juce::dontSendNotification);
@@ -245,10 +243,7 @@ void LandingScreen::loadSettings()
 
 void LandingScreen::setSetup (const SessionSettings::Setup& s)
 {
-    drumsCard.setSeated (s.drumsIn);
-    bassCard.setSeated (s.bassIn);
-    keysCard.setSeated (s.keysIn);
-    fxCard.setSeated (s.fxIn);
+    drumsCard.setSeated (true);
     styleBox.setSelectedId (s.style + 1, juce::dontSendNotification);
     drumsKitBox.setSelectedId  (s.drumsKit  + 1, juce::dontSendNotification);
     bassVoiceBox.setSelectedId (s.bassVoice + 1, juce::dontSendNotification);
@@ -268,10 +263,10 @@ void LandingScreen::setSetup (const SessionSettings::Setup& s)
 SessionSettings::Setup LandingScreen::getSetup() const
 {
     SessionSettings::Setup s;
-    s.drumsIn = drumsCard.isSeated();
-    s.bassIn  = bassCard.isSeated();
-    s.keysIn  = keysCard.isSeated();
-    s.fxIn    = fxCard.isSeated();
+    s.drumsIn = true;
+    s.bassIn  = false;
+    s.keysIn  = false;
+    s.fxIn    = false;
     s.style   = juce::jlimit (0, 4, styleBox.getSelectedId() - 1);
     s.drumsKit  = juce::jlimit (0, 4, drumsKitBox.getSelectedId()  - 1);
     s.bassVoice = juce::jlimit (0, 3, bassVoiceBox.getSelectedId() - 1);
@@ -337,25 +332,7 @@ void LandingScreen::setDeviceStatus (const juce::String& text)
 
 void LandingScreen::refreshRosterLabel()
 {
-    int n = (drumsCard.isSeated() ? 1 : 0)
-          + (bassCard.isSeated()  ? 1 : 0)
-          + (keysCard.isSeated()  ? 1 : 0)
-          + (fxCard.isSeated()    ? 1 : 0);
-    juce::String who;
-    auto add = [&who] (bool on, const char* name)
-    {
-        if (! on) return;
-        if (who.isNotEmpty()) who << " + ";
-        who << name;
-    };
-    add (drumsCard.isSeated(), "Drums");
-    add (bassCard.isSeated(),  "Bass");
-    add (keysCard.isSeated(),  "Keys");
-    add (fxCard.isSeated(),    "FX");
-    if (n == 0)
-        subtitle.setText ("Empty room  —  you solo", juce::dontSendNotification);
-    else
-        subtitle.setText ("Who's in the room?   " + who, juce::dontSendNotification);
+    subtitle.setText ("Who's in the room?   Drums", juce::dontSendNotification);
 }
 
 bool LandingScreen::keyPressed (const juce::KeyPress& key)
@@ -477,20 +454,10 @@ void LandingScreen::resized()
     chairsBounds = r;
     {
         auto c = chairsBounds;
-        const int gap = sx (10);
-        const int w = (c.getWidth() - gap * 3) / 4;
         const int comboH = sx (34);
-        auto place = [this, comboH] (juce::Rectangle<int> col, ChairCard& card, juce::ComboBox& box)
-        {
-            box.setBounds (col.removeFromBottom (comboH).reduced (sx (8), sx (2)));
-            card.setBounds (col.reduced (sx (3)));
-        };
-        place (c.removeFromLeft (w), drumsCard, drumsKitBox);
-        c.removeFromLeft (gap);
-        place (c.removeFromLeft (w), bassCard, bassVoiceBox);
-        c.removeFromLeft (gap);
-        place (c.removeFromLeft (w), keysCard, keysVoiceBox);
-        c.removeFromLeft (gap);
-        place (c, fxCard, fxVoiceBox);
+        const int cardW = juce::jmin (sx (320), c.getWidth());
+        auto col = c.withSizeKeepingCentre (cardW, c.getHeight());
+        drumsKitBox.setBounds (col.removeFromBottom (comboH).reduced (sx (8), sx (2)));
+        drumsCard.setBounds (col.reduced (sx (3)));
     }
 }

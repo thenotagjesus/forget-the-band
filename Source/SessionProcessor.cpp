@@ -161,19 +161,21 @@ float SessionProcessor::busGain (int bus) const noexcept
 
 void SessionProcessor::setBandRoster (bool drums, bool bass, bool keys, bool fxOn) noexcept
 {
-    band.setMemberEnabled (FollowerBand::MemberDrums, drums);
-    band.setMemberEnabled (FollowerBand::MemberBass,  bass);
-    band.setMemberEnabled (FollowerBand::MemberKeys,  keys);
-    band.setMemberEnabled (FollowerBand::MemberFx,    fxOn);
-    fxChair.setEnabled (fxOn);
-    setBusMute (Drums, ! drums);
-    setBusMute (Bass,  ! bass);
-    setBusMute (Keys,  ! keys);
-    setBusMute (Fx,    ! fxOn);
+    juce::ignoreUnused (drums, bass, keys, fxOn);
+    // Drums-only drop: bass / keys / FX stay in the code but are silent.
+    band.setMemberEnabled (FollowerBand::MemberDrums, true);
+    band.setMemberEnabled (FollowerBand::MemberBass,  false);
+    band.setMemberEnabled (FollowerBand::MemberKeys,  false);
+    band.setMemberEnabled (FollowerBand::MemberFx,    false);
+    fxChair.setEnabled (false);
+    setBusMute (Drums, false);
+    setBusMute (Bass,  true);
+    setBusMute (Keys,  true);
+    setBusMute (Fx,    true);
     auto& tracks = daw.getProject().tracks;
-    tracks[(size_t) Daw::kDrums].mute.store (drums ? 0 : 1, std::memory_order_relaxed);
-    tracks[(size_t) Daw::kBass].mute.store  (bass  ? 0 : 1, std::memory_order_relaxed);
-    tracks[(size_t) Daw::kKeys].mute.store  (keys  ? 0 : 1, std::memory_order_relaxed);
+    tracks[(size_t) Daw::kDrums].mute.store (0, std::memory_order_relaxed);
+    tracks[(size_t) Daw::kBass].mute.store  (1, std::memory_order_relaxed);
+    tracks[(size_t) Daw::kKeys].mute.store  (1, std::memory_order_relaxed);
 }
 
 void SessionProcessor::applyJamSetup (const SessionSettings::Setup& s) noexcept
@@ -186,7 +188,8 @@ void SessionProcessor::applyJamSetup (const SessionSettings::Setup& s) noexcept
     band.setScale ((FollowerBand::Scale) juce::jlimit (0, (int) FollowerBand::Scale::NumScales - 1, s.scale));
     band.setFeel  ((FollowerBand::Feel)  juce::jlimit (0, (int) FollowerBand::Feel::NumFeels - 1, s.feel));
     band.setPhraseBars (s.phraseBars);
-    setBandRoster (s.drumsIn, s.bassIn, s.keysIn, s.fxIn);
+    setBandRoster (true, false, false, false);
+    fxChair.setEnabled (false);
     fxChair.setVoice ((FxChair::Voice) juce::jlimit (0, (int) FxChair::Voice::NumVoices - 1, s.fxVoice));
 
     if (s.followKey)
@@ -597,14 +600,9 @@ void SessionProcessor::processDuplex (const float* const* inChannels, int numIns
             kL[(size_t) i] *= lift; kR[(size_t) i] *= lift;
         }
     }
-    fxChair.process (band.getStepInBar(),
-                     band.getAbsBarIndex(),
-                     band.getPhraseBars(),
-                     band.isFillBar(),
-                     band.isCrashDownbeat(),
-                     bandEnergy.load (std::memory_order_relaxed),
-                     fL.data(), fR.data(),
-                     n);
+    // FX chair is staffed later — skip mix this drop.
+    std::memset (fL.data(), 0, (size_t) n * sizeof (float));
+    std::memset (fR.data(), 0, (size_t) n * sizeof (float));
 
     daw.process (gL.data(), gR.data(),
                  dL.data(), dR.data(),
@@ -621,7 +619,7 @@ void SessionProcessor::processDuplex (const float* const* inChannels, int numIns
     const float gD = busGain (Drums);
     const float gB = busGain (Bass);
     const float gK = busGain (Keys);
-    const float gF = busGain (Fx);
+    const float gF = 0.0f; // FX chair silent
     const float gM = busGain (Master);
 
     juce::ignoreUnused (gG, gD, gB, gK, gM);

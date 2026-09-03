@@ -35,7 +35,7 @@ void Arrangement::resetDefault() noexcept
     followDeg.store (0);
     followConf.store (0.0f);
     phaseNudge.store (0.0);
-    thin.store (0x7);
+    thin.store (0x1);
     pendingDeg = committedDeg = 0;
     pendingHops = 0;
     committedScore = 0.0f;
@@ -203,19 +203,33 @@ void Arrangement::tick (const float chroma[12],
     followDeg.store (outDeg, std::memory_order_relaxed);
     followConf.store (outConf, std::memory_order_relaxed);
 
-    // Pocket clock: only nudge when the player is actually on, and only if
-    // the error is bigger than ~18% of a 16th. Tiny human errors stay.
-    // Never yank the clock back to beat 1.
-    if (onset && intensity > 0.35f && samplesPer16th > 32.0)
+    // Strong guitar onset (aubio + RMS already gated above hiss):
+    // nudge the 16th clock toward the nearest beat (0, 4, 8, 12) so kick on 1
+    // lands with the player's downstroke. Cap ~25% of a 16th, stronger at high intensity.
+    if (onset && samplesPer16th > 32.0)
     {
-        const double toPrev = stepAccum;
-        const double toNext = stepAccum - samplesPer16th;
-        const double nearest = (std::abs (toPrev) < std::abs (toNext)) ? toPrev : toNext;
-        if (std::abs (nearest) > samplesPer16th * 0.18)
-            phaseNudge.store (-nearest, std::memory_order_relaxed);
+        const double inv = 1.0 / samplesPer16th;
+        double pos = (double) ((stepInBar + 15) & 15) + stepAccum * inv;
+        if (pos >= 16.0) pos -= 16.0;
+        double bestErr = 0.0;
+        double bestAbs = 1.0e9;
+        for (double beat : { 0.0, 4.0, 8.0, 12.0 })
+        {
+            double e = pos - beat;
+            if (e >  8.0) e -= 16.0;
+            if (e < -8.0) e += 16.0;
+            if (std::abs (e) < bestAbs)
+            {
+                bestAbs = std::abs (e);
+                bestErr = e; // positive = late vs the beat
+            }
+        }
+        const double maxFrac = 0.12 + 0.13 * (double) juce::jlimit (0.0f, 1.0f, intensity);
+        const double maxS = samplesPer16th * maxFrac;
+        const double want = -bestErr * samplesPer16th;
+        if (std::abs (want) > samplesPer16th * 0.04)
+            phaseNudge.store (juce::jlimit (-maxS, maxS, want), std::memory_order_relaxed);
     }
 
-    // User lobby chairs already gate drums/bass/keys via setMemberEnabled.
-    // Difficulty/intensity are a hint only — never mute seated members.
-    thin.store (0x7, std::memory_order_relaxed);
+    thin.store (0x1, std::memory_order_relaxed); // drums-only drop
 }

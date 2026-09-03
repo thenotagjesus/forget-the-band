@@ -2,9 +2,10 @@
 
 **Centrophy** — a live follower band for guitar.
 
-Plug in, start a session, and a synthesized drums / bass / keys trio jams with you
-in real time. This is not a song player and not a full amp-sim suite. It listens
-to your playing (pitch, key, pulse, how busy you are) and follows.
+Plug in, start a session, and a synthesized drum kit jams with you
+in real time (bass, keys, and FX chairs sit this round). This is not a song
+player and not a full amp-sim suite. It listens to your playing (pitch, key,
+pulse, how busy you are) and the kit follows.
 
 Product: **Forget The Band** · Company: **Centrophy** · Bundle ID: `com.centrophy.forgettheband`
 
@@ -18,16 +19,17 @@ Built with JUCE 8.0.8 (FetchContent, C++20). Windows-first desktop app. Version 
   voicing (no IR files) → tempo-sync delay → hall-ish reverb send
 - Tuner: nearest note + cents needle from the analysis thread
 - Follower band: **Rock, Blues, Metal, Funk, Jazz** — original synthesized patterns
-- Four lobby chairs: Drums, Bass, Keys, **FX** (sampler + SFX). Empty chairs are silent.
-- Each seated member has a voice picker (kit / bass / keys / FX Auto·Hits·Risers·Foley), independent of jam Style
+- Lobby chair this round: **Drums** (always seated). Bass, keys, and FX sit out — silent, not deleted.
+- Kit picker is independent of jam Style. Bass / keys / FX voices stay in the code for restaff later.
 - Bar-aware drum fills every 8 bars (extra fills at high intensity) + crash on the next downbeat
 - Intensity raises hat density, fill chance, bass motion, key velocity, and FX spice
-- **Auto BPM follows the player until you press Lock Tempo.** It never auto-freezes mid-jam.
-  Landing **Follow tempo** (was Slew) seeds BPM then keeps slewing. Key auto-lock can still engage.
+- **Auto BPM follows the player until you press Lock Tempo.** First ~8 IOI consensus
+  snaps ±8 BPM, then slews ±1.2 BPM, clamp 60–140, with double/half fold so 16ths
+  do not stick as double-time. Strong onsets phase-lock the 16th clock to beats 1/2/3/4.
 - **Export MIDI** writes the named-note transcription as a Standard MIDI `.mid` file
 - CC0 one-shots under `Assets/Samples/` (BushDrum, Kenney Impact/Sci-Fi, original DSP) with synth fallback
 - Optional 4-beat count-in click on Start Session (band silent until it finishes; default on)
-- Mixer: level / mute / solo / live peak meter for Guitar, Drums, Bass, Keys, FX, Master
+- Mixer: level / mute / solo / live peak meter for Guitar, Drums, Master (bass/keys/FX strips hidden this round)
 - Stem recording: one WAV per bus plus stereo master (including `fx.wav`), 32-bit float; elapsed mm:ss + REC pulse
 - Bar counter (`1.1`, `1.2`, …)
 - Audio device picker (`AudioDeviceSelectorComponent`); WASAPI always; ASIO optional
@@ -45,8 +47,8 @@ Built with JUCE 8.0.8 (FetchContent, C++20). Windows-first desktop app. Version 
     │
     ├── gain → gate → AmpCab → delay → space ── guitar bus
     │
-    └── FollowerBand + FxChair (audio thread, reads atomics)
-           drums / bass / keys / fx  (silent during count-in)
+    └── FollowerBand DrumEngine (audio thread, reads atomics)
+           drums  (bass / keys / fx silent this round; silent during count-in)
                 │
                 ▼
            Mixer (mute/solo/level + per-bus peaks)
@@ -66,9 +68,10 @@ reverb buffers are allocated in `prepare` only.
 
 **Analysis worker** drains Basic Pitch results (chroma / chord / key), locks
 tempo from aubio onset IOIs, and emits named-note MIDI. After a few bars of a
-stable key the key auto-lock can engage. **BPM never auto-locks** — Auto BPM keeps
-slewing from onset IOIs until **Lock Tempo** is on. Manual key/BPM overrides
-bypass auto entirely. Homemade YIN remains as fallback if aubio is missing.
+stable key the key auto-lock can engage. **BPM never auto-locks** — Auto BPM
+snaps on the first ~8 IOI consensus (±8 BPM) then slews ±1.2 until **Lock Tempo**
+is on. Manual key/BPM overrides bypass auto entirely. Homemade YIN remains as
+fallback if aubio is missing.
 
 **Stem writer thread** drains the record FIFO and writes 32-bit float WAVs.
 Start and stop are atomic across all buses: guitar, drums, bass, keys, fx, master.
@@ -113,8 +116,11 @@ Projects: `Documents/Centrophy/ForgetTheBand/projects/<name>/project.xml` + `aud
 | Funk  | 16th hats, kick on 1 and &-of-2, ghost snare | muted 16ths with pluck | sparse 7/9 stabs | I – IV – I – V |
 | Jazz  | swing ride (spang-a-lang), light kick | walking quarters + approach tones | 7th/9th voicings, 2-and-4 comp | ii – V – I – vi |
 
-Every 8th bar (and extra 4-bar fills at high intensity) the kit plays a one-bar
-tom/snare fill and crashes on the next downbeat.
+Pocket floor (Keep Groove): kick 1+3, snare 2+4, even-8th hats (ride on jazz beats).
+Push adds ghosts and an extra kick; fire adds 16th hats and metal four-on-floor.
+Every 8th bar the kit plays a tom run (high–mid–floor) plus snare build on the
+last four 16ths and crashes on the next downbeat. Kick/snare/hats/toms/ride/crash
+are independent synth voices with optional CC0 sample layers (not a sine+noise kit).
 
 ## Windows (Visual Studio 2022 Build Tools + CMake)
 

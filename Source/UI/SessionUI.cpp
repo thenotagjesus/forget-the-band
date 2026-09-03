@@ -145,13 +145,7 @@ SessionUI::SessionUI (SessionProcessor& processor, juce::AudioDeviceManager& dev
         fxVoiceBox.addItem (FxChair::voiceName (i), i + 1);
     fxVoiceBox.setSelectedId (1, juce::dontSendNotification);
     addAndMakeVisible (kitLbl);
-    addAndMakeVisible (bassVoiceLbl);
-    addAndMakeVisible (keysVoiceLbl);
-    addAndMakeVisible (fxVoiceLbl);
     addAndMakeVisible (kitBox);
-    addAndMakeVisible (bassVoiceBox);
-    addAndMakeVisible (keysVoiceBox);
-    addAndMakeVisible (fxVoiceBox);
 
     keyBox.addItemList ({ "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }, 1);
     keyBox.setSelectedId (5, juce::dontSendNotification); // E
@@ -220,9 +214,6 @@ SessionUI::SessionUI (SessionProcessor& processor, juce::AudioDeviceManager& dev
 
     addAndMakeVisible (guitarStrip);
     addAndMakeVisible (drumsStrip);
-    addAndMakeVisible (bassStrip);
-    addAndMakeVisible (keysStrip);
-    addAndMakeVisible (fxStrip);
     addAndMakeVisible (masterStrip);
 
     playBtn.setColour (juce::TextButton::buttonOnColourId, juce::Colour (SessionLookAndFeel::kAccent));
@@ -350,7 +341,6 @@ SessionUI::SessionUI (SessionProcessor& processor, juce::AudioDeviceManager& dev
     addAndMakeVisible (noteLaneLbl);
     midiBtn.setTooltip ("Save the notes you played as a .mid file");
     addAndMakeVisible (midiBtn);
-    addAndMakeVisible (loadFxBtn);
 
     guitarStrip.level.setValue (proc.getBusLevel (SessionProcessor::Guitar));
     drumsStrip.level.setValue  (proc.getBusLevel (SessionProcessor::Drums));
@@ -1003,10 +993,10 @@ void SessionUI::syncFromSetup (const SessionSettings::Setup& s)
 SessionSettings::Setup SessionUI::readSetup() const
 {
     SessionSettings::Setup s;
-    s.drumsIn = proc.getBand().isMemberEnabled (FollowerBand::MemberDrums);
-    s.bassIn  = proc.getBand().isMemberEnabled (FollowerBand::MemberBass);
-    s.keysIn  = proc.getBand().isMemberEnabled (FollowerBand::MemberKeys);
-    s.fxIn    = proc.getFxChair().isEnabled();
+    s.drumsIn = true;
+    s.bassIn  = false;
+    s.keysIn  = false;
+    s.fxIn    = false;
     s.style   = juce::jlimit (0, 4, styleBox.getSelectedId() - 1);
     s.drumsKit  = juce::jlimit (0, 4, kitBox.getSelectedId() - 1);
     s.bassVoice = juce::jlimit (0, 3, bassVoiceBox.getSelectedId() - 1);
@@ -1300,7 +1290,6 @@ void SessionUI::resized()
         energyLbl.setBounds (top.removeFromLeft (sx (70)).reduced (0, sx (16)));
         playerMeterBounds = top.removeFromLeft (sx (120)).reduced (sx (2), sx (12));
         bandMeterBounds = top.removeFromLeft (sx (120)).reduced (sx (2), sx (12));
-        loadFxBtn.setBounds (top.removeFromRight (sx (78)).reduced (sx (4), sx (10)));
         midiBtn.setBounds (top.removeFromRight (sx (108)).reduced (sx (4), sx (10)));
         neckBounds = top.reduced (sx (4), sx (6));
         auto lane = h;
@@ -1356,26 +1345,14 @@ void SessionUI::resized()
         auto mixHead = mixArea.removeFromTop (sx (28));
         mixLbl.setBounds (mixHead.removeFromLeft (sx (58)).reduced (0, sx (4)));
         kitLbl.setBounds (mixHead.removeFromLeft (sx (28)).reduced (0, sx (6)));
-        kitBox.setBounds (mixHead.removeFromLeft (sx (96)).reduced (sx (2), sx (2)));
-        mixHead.removeFromLeft (sx (8));
-        bassVoiceLbl.setBounds (mixHead.removeFromLeft (sx (36)).reduced (0, sx (6)));
-        bassVoiceBox.setBounds (mixHead.removeFromLeft (sx (88)).reduced (sx (2), sx (2)));
-        mixHead.removeFromLeft (sx (8));
-        keysVoiceLbl.setBounds (mixHead.removeFromLeft (sx (36)).reduced (0, sx (6)));
-        keysVoiceBox.setBounds (mixHead.removeFromLeft (sx (88)).reduced (sx (2), sx (2)));
-        mixHead.removeFromLeft (sx (8));
-        fxVoiceLbl.setBounds (mixHead.removeFromLeft (sx (24)).reduced (0, sx (6)));
-        fxVoiceBox.setBounds (mixHead.removeFromLeft (sx (80)).reduced (sx (2), sx (2)));
+        kitBox.setBounds (mixHead.removeFromLeft (sx (120)).reduced (sx (2), sx (2)));
     }
     {
-        auto sessionMix = mixArea.removeFromRight (sx (360));
-        const int sw = sessionMix.getWidth() / 6;
-        guitarStrip.setBounds (sessionMix.removeFromLeft (sw).reduced (sx (1)));
-        drumsStrip.setBounds  (sessionMix.removeFromLeft (sw).reduced (sx (1)));
-        bassStrip.setBounds   (sessionMix.removeFromLeft (sw).reduced (sx (1)));
-        keysStrip.setBounds   (sessionMix.removeFromLeft (sw).reduced (sx (1)));
-        fxStrip.setBounds     (sessionMix.removeFromLeft (sw).reduced (sx (1)));
-        masterStrip.setBounds (sessionMix.reduced (sx (1)));
+        auto sessionMix = mixArea.removeFromRight (sx (420));
+        const int sw = sessionMix.getWidth() / 3;
+        guitarStrip.setBounds (sessionMix.removeFromLeft (sw).reduced (sx (2)));
+        drumsStrip.setBounds  (sessionMix.removeFromLeft (sw).reduced (sx (2)));
+        masterStrip.setBounds (sessionMix.reduced (sx (2)));
 
         const int dw = mixArea.getWidth() / Daw::kNumTracks;
         for (int i = 0; i < Daw::kNumTracks; ++i)

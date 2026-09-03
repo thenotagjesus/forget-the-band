@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include "DSP/Biquad.h"
 #include "DSP/SampleBank.h"
+#include "DSP/DrumEngine.h"
 #include <array>
 #include <atomic>
 #include <cstdint>
@@ -187,11 +188,11 @@ private:
     std::atomic<int> phraseBars { 8 };
     std::atomic<int> enabled { 0 };
     std::atomic<int> drumsOn { 1 };
-    std::atomic<int> bassOn { 1 };
-    std::atomic<int> keysOn { 1 };
-    std::atomic<int> fxOn { 1 };
+    std::atomic<int> bassOn { 0 };
+    std::atomic<int> keysOn { 0 };
+    std::atomic<int> fxOn { 0 };
     std::atomic<int> followDeg { -1 };
-    std::atomic<int> thinMask { 0x7 };
+    std::atomic<int> thinMask { 0x1 };
     std::atomic<int> barIndexAtom { 0 };
     std::atomic<int> absBarAtom { 0 };
     std::atomic<int> stepAtom { 0 };
@@ -265,4 +266,5 @@ private:
     Biquad hatHp, snareBp, bassLp, keyLp, tomBp, kickHp;
 
     SampleBank* samples = nullptr;
+    DrumEngine drumEngine;
 };

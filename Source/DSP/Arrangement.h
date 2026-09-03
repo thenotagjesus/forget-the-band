@@ -50,7 +50,7 @@ public:
     /** Consume slew-limited 16th phase correction (samples). Audio thread. */
     double consumePhaseNudge() noexcept { return phaseNudge.exchange (0.0, std::memory_order_relaxed); }
 
-    /** Bit0 drums, bit1 bass, bit2 keys. Audio thread. */
+    /** Bit0 drums, bit1 bass, bit2 keys. Drums-only drop uses 0x1. */
     int thinMask() const noexcept { return thin.load (std::memory_order_relaxed); }
 
     int sectionChord (int absBar) const noexcept;
