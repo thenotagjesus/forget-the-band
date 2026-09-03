@@ -207,6 +207,9 @@ private:
     double stepAccum = 0.0;
     bool fireImmediate = true;
     double samplesPer16th = 5512.5;
+    double lastStepLen = 5512.5;
+    double stepHumanize = 1.0;
+    float bpmApplied = 96.0f;
     int step = 0;
     int barIndex = 0;
     int absBar = 0;

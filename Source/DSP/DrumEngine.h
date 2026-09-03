@@ -62,6 +62,7 @@ private:
     float hClosedDec = 0.9938f, hOpenDec = 0.99918f;
     float hPhaseA = 0, hPhaseB = 0;
     float hHzA = 7800.0f, hHzB = 10400.0f;
+    float hatSampleAge = 1.0e9f;
     Biquad hHp;
 
     // Toms: high / mid / floor with pitch drop

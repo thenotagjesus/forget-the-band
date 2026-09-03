@@ -63,6 +63,8 @@ void InputAnalyzer::prepare (double sr)
     ioiCount.store (0);
     ioiWrite.store (0);
     ioiConsensusN = 0;
+    tempoDisagreeN = 0;
+    ioiFresh.store (0, std::memory_order_relaxed);
     onsetRateSmooth = 0.0f;
     lastEnergy = fluxAvg = 0.0f;
     samplesSinceOnset = 1.0e9;
@@ -146,6 +148,8 @@ void InputAnalyzer::unlockBpm() noexcept
     lockTempo.store (0, std::memory_order_relaxed);
     bpmStableHops = 0;
     ioiConsensusN = 0;
+    tempoDisagreeN = 0;
+    ioiFresh.store (0, std::memory_order_relaxed);
 }
 
 void InputAnalyzer::setKeySeed (int pc) noexcept
@@ -162,6 +166,8 @@ void InputAnalyzer::setBpmSeed (float v) noexcept
     bpm.store (v, std::memory_order_relaxed);
     bpmSmoothed = v;
     ioiConsensusN = 0;
+    tempoDisagreeN = 0;
+    ioiFresh.store (0, std::memory_order_relaxed);
 }
 
 void InputAnalyzer::nudgeBpm (float delta) noexcept
@@ -406,6 +412,7 @@ void InputAnalyzer::pushIoi (float sec) noexcept
     ioiCount.store (juce::jmin ((int) ioiSec.size(),
                                 ioiCount.load (std::memory_order_relaxed) + 1),
                     std::memory_order_relaxed);
+    ioiFresh.store (1, std::memory_order_relaxed);
 }
 
 void InputAnalyzer::updateTempo (float rms, int n) noexcept
@@ -447,8 +454,22 @@ void InputAnalyzer::updateTempo (float rms, int n) noexcept
 
 void InputAnalyzer::updateTempoFromIoi() noexcept
 {
+    const bool fresh = ioiFresh.exchange (0, std::memory_order_relaxed) != 0;
+
     if (autoBpm.load (std::memory_order_relaxed) == 0
         || lockTempo.load (std::memory_order_relaxed) != 0)
+        return;
+
+    // Only on a new guitar onset (IOI just pushed). Never every aubio hop.
+    if (! fresh)
+        return;
+
+    // Idle / hiss: hold BPM.
+    if (rmsSmooth < 0.008f && activitySmooth < 0.008f)
+        return;
+
+    // No onset for ~1.5 s: hold (belt if something still calls this on hops).
+    if (samplesSinceOnset / juce::jmax (1.0, sampleRate) > 1.5)
         return;
 
     const int count = ioiCount.load (std::memory_order_relaxed);
@@ -477,13 +498,36 @@ void InputAnalyzer::updateTempoFromIoi() noexcept
     while (est <  60.0f) est *= 2.0f;
     est = juce::jlimit (60.0f, 140.0f, est);
 
-    // First ~8 stable IOI consensus: snap with a bigger cap so 96→88 catches
-    // in a couple of seconds. After lock-in, slew ±1.2 BPM.
-    const bool catching = (ioiConsensusN < 8);
-    const float cap = catching ? 8.0f : 1.2f;
-    const float delta = juce::jlimit (-cap, cap, est - bpmSmoothed);
-    bpmSmoothed = juce::jlimit (60.0f, 140.0f, bpmSmoothed + delta);
-    ++ioiConsensusN;
+    const float err = est - bpmSmoothed;
+
+    if (bpmConfident.load (std::memory_order_relaxed) != 0)
+    {
+        // HOLD unless 4 consecutive onset-estimates disagree by >8 BPM.
+        if (std::abs (err) > 8.0f)
+        {
+            ++tempoDisagreeN;
+            if (tempoDisagreeN < 4)
+                return;
+            const float delta = juce::jlimit (-0.25f, 0.25f, err);
+            bpmSmoothed = juce::jlimit (60.0f, 140.0f, bpmSmoothed + delta);
+        }
+        else
+        {
+            tempoDisagreeN = 0;
+            bpm.store (bpmSmoothed, std::memory_order_relaxed);
+            return;
+        }
+    }
+    else
+    {
+        tempoDisagreeN = 0;
+        // First 8 *onset* consensus: ±1.5 BPM max. After that ±0.25 per onset.
+        const bool catching = (ioiConsensusN < 8);
+        const float cap = catching ? 1.5f : 0.25f;
+        const float delta = juce::jlimit (-cap, cap, err);
+        bpmSmoothed = juce::jlimit (60.0f, 140.0f, bpmSmoothed + delta);
+        ++ioiConsensusN;
+    }
 
     if (std::abs (est - bpmSmoothed) < 4.0f)
         ++bpmStableHops;
@@ -504,8 +548,7 @@ void InputAnalyzer::maybeLock() noexcept
         keyLocked.store (1, std::memory_order_relaxed);
 
     // Do not auto-lock BPM mid-jam. Lock Tempo is the only freeze.
-    bpmConfident.store (bpmStableHops >= juce::jmax (8, barsNeeded / 4) ? 1 : 0,
-                        std::memory_order_relaxed);
+    // bpmConfident is onset-owned in updateTempoFromIoi; do not clear it on hops.
 }
 
 void InputAnalyzer::analyseWindow (const float* x, int n) noexcept

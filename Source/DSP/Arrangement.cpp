@@ -203,10 +203,11 @@ void Arrangement::tick (const float chroma[12],
     followDeg.store (outDeg, std::memory_order_relaxed);
     followConf.store (outConf, std::memory_order_relaxed);
 
-    // Strong guitar onset (aubio + RMS already gated above hiss):
-    // nudge the 16th clock toward the nearest beat (0, 4, 8, 12) so kick on 1
-    // lands with the player's downstroke. Cap ~25% of a 16th, stronger at high intensity.
-    if (onset && samplesPer16th > 32.0)
+    // Strong guitar onset at real playing intensity: nudge toward 0/4/8/12.
+    // Raw error must be >12% of a 16th (ignore 8th-note jitter / already-locked).
+    // Cap ~8% of a 16th; FollowerBand then applies at most 6% and will not
+    // cross stepLen.
+    if (onset && intensity > 0.45f && samplesPer16th > 32.0)
     {
         const double inv = 1.0 / samplesPer16th;
         double pos = (double) ((stepInBar + 15) & 15) + stepAccum * inv;
@@ -224,11 +225,12 @@ void Arrangement::tick (const float chroma[12],
                 bestErr = e; // positive = late vs the beat
             }
         }
-        const double maxFrac = 0.12 + 0.13 * (double) juce::jlimit (0.0f, 1.0f, intensity);
-        const double maxS = samplesPer16th * maxFrac;
         const double want = -bestErr * samplesPer16th;
-        if (std::abs (want) > samplesPer16th * 0.04)
+        if (std::abs (want) > samplesPer16th * 0.12)
+        {
+            const double maxS = samplesPer16th * 0.08;
             phaseNudge.store (juce::jlimit (-maxS, maxS, want), std::memory_order_relaxed);
+        }
     }
 
     thin.store (0x1, std::memory_order_relaxed); // drums-only drop

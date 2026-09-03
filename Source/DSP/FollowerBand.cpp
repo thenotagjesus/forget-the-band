@@ -210,6 +210,9 @@ void FollowerBand::reset() noexcept
     step = 0;
     stepAccum = 0.0;
     fireImmediate = true; // one downbeat, not a catch-up flood
+    stepHumanize = 1.0;
+    lastStepLen = 5512.5;
+    bpmApplied = 96.0f;
     barIndex = 0;
     absBar = 0;
     currentDeg = DegI;
@@ -820,8 +823,20 @@ void FollowerBand::applyPhaseNudge (double deltaSamples) noexcept
 {
     if (samplesPer16th <= 1.0)
         return;
-    const double maxSlew = samplesPer16th * 0.25; // up to 25% of a 16th per onset
-    stepAccum += juce::jlimit (-maxSlew, maxSlew, deltaSamples);
+    // Arrangement already ignores raw |delta| < 12% of a 16th before capping
+    // the request at 8%. Apply at most 6%; drop empty stores.
+    if (std::abs (deltaSamples) <= 0.0)
+        return;
+    const double maxSlew = samplesPer16th * 0.06; // max 6% of a 16th
+    const double d = juce::jlimit (-maxSlew, maxSlew, deltaSamples);
+    const double len = juce::jmax (64.0, lastStepLen > 1.0 ? lastStepLen : samplesPer16th);
+    double next = stepAccum + d;
+    // Never push stepAccum across stepLen (no extra trigger from a nudge).
+    if (stepAccum < len && next >= len)
+        next = len * (1.0 - 1.0e-9);
+    if (next < 0.0)
+        next = 0.0;
+    stepAccum = next;
 }
 
 void FollowerBand::process (int keyPc,
@@ -851,7 +866,9 @@ void FollowerBand::process (int keyPc,
         drumEngine.setKit ((int) kit);
         lastTimbreStamp = timbreStamp;
     }
-    const float bpmClamped = juce::jlimit (60.0f, 180.0f, bpmIn);
+    const float bpmTarget = juce::jlimit (60.0f, 180.0f, bpmIn);
+    // Clamp |dBPM| applied per block so the UI/engine cannot jump the clock.
+    bpmApplied += juce::jlimit (-0.4f, 0.4f, bpmTarget - bpmApplied);
     const float inten = juce::jlimit (0.0f, 1.0f, intensity);
     const auto fl = getFeel();
     float swing = 0.0f;
@@ -859,7 +876,10 @@ void FollowerBand::process (int keyPc,
         swing = 0.62f;
     lastSwing = swing;
 
-    samplesPer16th = (60.0 / (double) bpmClamped) * sampleRate / 4.0;
+    const double newSp16 = (60.0 / (double) bpmApplied) * sampleRate / 4.0;
+    if (samplesPer16th > 1.0 && newSp16 > 1.0)
+        stepAccum *= newSp16 / samplesPer16th;
+    samplesPer16th = newSp16;
     double feelBias = 1.0;
     if (fl == Feel::Ahead)  feelBias = 0.97;
     if (fl == Feel::Behind) feelBias = 1.03;
@@ -901,8 +921,9 @@ void FollowerBand::process (int keyPc,
             if ((step & 1) == 0) stepLen = samplesPer16th * feelBias * (1.0 + 0.5 * (double) swing);
             else                 stepLen = samplesPer16th * feelBias * (1.0 - 0.5 * (double) swing);
         }
-        stepLen *= 1.0 + 0.012 * (double) noise(); // slight humanize
+        stepLen *= stepHumanize; // once per triggered step, not every sample
         stepLen = juce::jmax (64.0, stepLen);
+        lastStepLen = stepLen;
 
         bool due = fireImmediate;
         if (run)
@@ -921,6 +942,7 @@ void FollowerBand::process (int keyPc,
             if (step == 0)
                 decideFill (st, inten);
             triggerStep (step, st, inten, currentDeg, nextDeg, keyPc);
+            stepHumanize = 1.0 + 0.012 * (double) noise();
             step = (step + 1) & 15;
             stepAtom.store (step, std::memory_order_relaxed);
             if (step == 0)

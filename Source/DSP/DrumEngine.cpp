@@ -38,6 +38,7 @@ void DrumEngine::reset() noexcept
     cEnv = 0;
     cPh.fill (0);
     envFollow = 0;
+    hatSampleAge = 1.0e9f;
 }
 
 void DrumEngine::setKit (int k) noexcept
@@ -246,8 +247,17 @@ void DrumEngine::trigHat (float vel, bool open) noexcept
         hClosed = juce::jmax (hClosed, vel);
         hOpen *= 0.50f; // closed chokes open
     }
+    // Synth hat can still tick. Do not retrigger overlapping hat one-shots
+    // (first ~30 ms of the previous hat sample voice) — they click.
     if (samples != nullptr && samples->isReady (hatSlot()))
-        samples->play (hatSlot(), vel * 0.70f, 1.0f, 0);
+    {
+        const float minGap = 0.030f * (float) sr;
+        if (hatSampleAge >= minGap)
+        {
+            samples->play (hatSlot(), vel * 0.70f, 1.0f, 0);
+            hatSampleAge = 0.0f;
+        }
+    }
 }
 
 void DrumEngine::trigTom (int which, float vel) noexcept
@@ -283,6 +293,8 @@ void DrumEngine::trigCrash (float vel) noexcept
 
 void DrumEngine::render (float& left, float& right) noexcept
 {
+    hatSampleAge += 1.0f;
+
     // --- kick ---
     kHz *= kRate;
     if (kHz < kFloor) kHz = kFloor;
@@ -291,6 +303,8 @@ void DrumEngine::render (float& left, float& right) noexcept
     const float click = kClickHp.process (noise()) * kClick;
     kClick *= kClickDec;
     kEnv *= kDec;
+    if (kClick < 1.0e-8f) kClick = 0;
+    if (kEnv < 1.0e-8f) kEnv = 0;
     float kick = (body * 0.88f + sub * kSubAmt) * kEnv + click;
     kick = kHp.process (kick);
 
@@ -304,6 +318,9 @@ void DrumEngine::render (float& left, float& right) noexcept
     sEnv *= sDec;
     sToneEnv *= sToneDec;
     sSnap *= sSnapDec;
+    if (sEnv < 1.0e-8f) sEnv = 0;
+    if (sToneEnv < 1.0e-8f) sToneEnv = 0;
+    if (sSnap < 1.0e-8f) sSnap = 0;
 
     // --- hats (two envelopes, stereo width slightly L) ---
     const float hN = hHp.process (noise());
@@ -312,6 +329,8 @@ void DrumEngine::render (float& left, float& right) noexcept
     const float opened = (hN * 0.52f + hM * 0.58f) * hOpen;
     hClosed *= hClosedDec;
     hOpen   *= hOpenDec;
+    if (hClosed < 1.0e-8f) hClosed = 0;
+    if (hOpen < 1.0e-8f) hOpen = 0;
     const float hats = closed + opened;
 
     // --- toms ---
@@ -324,12 +343,14 @@ void DrumEngine::render (float& left, float& right) noexcept
         const float t = (oscSin (tPhase[(size_t) i], tHz[(size_t) i]) * 0.88f
                          + noise() * 0.12f) * tEnv[(size_t) i];
         tEnv[(size_t) i] *= tDec[(size_t) i];
+        if (tEnv[(size_t) i] < 1.0e-8f) tEnv[(size_t) i] = 0;
         toms += t;
     }
     toms = tHp.process (toms);
 
     // --- ride: inharmonic partials, not a single 1540 Hz sine ---
     rEnv *= rDec;
+    if (rEnv < 1.0e-8f) rEnv = 0;
     const float r0 = oscSin (rPh[0],  920.0f);
     const float r1 = oscSin (rPh[1], 1260.0f); // 1.37x
     const float r2 = oscSin (rPh[2], 1620.0f); // 1.76x
@@ -339,6 +360,7 @@ void DrumEngine::render (float& left, float& right) noexcept
 
     // --- crash ---
     cEnv *= cDec;
+    if (cEnv < 1.0e-8f) cEnv = 0;
     const float c0 = oscSin (cPh[0], 420.0f);
     const float c1 = oscSin (cPh[1], 680.0f);
     const float c2 = oscSin (cPh[2], 1350.0f);
@@ -366,8 +388,9 @@ void DrumEngine::render (float& left, float& right) noexcept
             + sampR;
 
     // One-pole envelope follower compressor: thresh 0.35, ratio 2.5
+    // Soft attack so kicks do not click-pump.
     const float mono = 0.5f * (std::abs (l) + std::abs (r));
-    const float coef = (mono > envFollow) ? 0.018f : 0.004f;
+    const float coef = (mono > envFollow) ? 0.004f : 0.002f;
     envFollow += (mono - envFollow) * coef;
     float gr = 1.0f;
     if (envFollow > 0.35f)

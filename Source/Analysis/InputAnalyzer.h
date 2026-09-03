@@ -180,6 +180,8 @@ private:
     float bpmSmoothed = 96.0f;
     int bpmStableHops = 0;
     int ioiConsensusN = 0;
+    int tempoDisagreeN = 0;
+    std::atomic<int> ioiFresh { 0 };
     float onsetRateSmooth = 0.0f;
 
     float rmsSmooth = 0.0f;

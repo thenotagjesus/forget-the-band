@@ -23,9 +23,13 @@ Built with JUCE 8.0.8 (FetchContent, C++20). Windows-first desktop app. Version 
 - Kit picker is independent of jam Style. Bass / keys / FX voices stay in the code for restaff later.
 - Bar-aware drum fills every 8 bars (extra fills at high intensity) + crash on the next downbeat
 - Intensity raises hat density, fill chance, bass motion, key velocity, and FX spice
-- **Auto BPM follows the player until you press Lock Tempo.** First ~8 IOI consensus
-  snaps ±8 BPM, then slews ±1.2 BPM, clamp 60–140, with double/half fold so 16ths
-  do not stick as double-time. Strong onsets phase-lock the 16th clock to beats 1/2/3/4.
+- **Auto BPM follows the player until you press Lock Tempo.** Updates only on
+  guitar onsets (not every ~11 ms hop). Play floor ~0.008 RMS; idle ~1.5 s holds
+  BPM. First 8 onset consensus ±1.5 BPM, then ±0.25 per onset; once confident,
+  hold unless 4 consecutive onset estimates disagree by >8 BPM. Clamp 60–140,
+  with double/half fold so 16ths do not stick as double-time. Phase nudge is
+  gated (intensity > 0.45, 12% deadzone, 8%/6% caps) so 8th-note picking does
+  not yank the clock.
 - **Export MIDI** writes the named-note transcription as a Standard MIDI `.mid` file
 - CC0 one-shots under `Assets/Samples/` (BushDrum, Kenney Impact/Sci-Fi, original DSP) with synth fallback
 - Optional 4-beat count-in click on Start Session (band silent until it finishes; default on)
@@ -69,9 +73,9 @@ reverb buffers are allocated in `prepare` only.
 **Analysis worker** drains Basic Pitch results (chroma / chord / key), locks
 tempo from aubio onset IOIs, and emits named-note MIDI. After a few bars of a
 stable key the key auto-lock can engage. **BPM never auto-locks** — Auto BPM
-snaps on the first ~8 IOI consensus (±8 BPM) then slews ±1.2 until **Lock Tempo**
-is on. Manual key/BPM overrides bypass auto entirely. Homemade YIN remains as
-fallback if aubio is missing.
+updates only on guitar onsets (±1.5 BPM for the first 8, then ±0.25) and holds
+once confident until **Lock Tempo** is on. Manual key/BPM overrides bypass auto
+entirely. Homemade YIN remains as fallback if aubio is missing.
 
 **Stem writer thread** drains the record FIFO and writes 32-bit float WAVs.
 Start and stop are atomic across all buses: guitar, drums, bass, keys, fx, master.
