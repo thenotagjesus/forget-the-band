@@ -1,4 +1,4 @@
-Forget The Band — sample notices
+Forget The Band  -  sample notices
 ================================
 
 Shipped WAVs under Assets/Samples are CC0 / public domain only.
@@ -15,9 +15,9 @@ Big Rusty Drums (CC0 1.0)
   https://github.com/sfzinstruments/karoryfer.big-rusty-drums
   Used for drums/metal_kick.wav, metal_snare.wav, metal_hat.wav, crash.wav
 
-BushDrum (CC0 1.0) — funk kit + clap
-Kenney Impact / Sci-Fi (CC0) — FX one-shots
-Centrophy original DSP (CC0 1.0) — bass/pluck, keys/hammer, keys/strings
+BushDrum (CC0 1.0)  -  funk kit + clap
+Kenney Impact / Sci-Fi (CC0)  -  FX one-shots
+Centrophy original DSP (CC0 1.0)  -  bass/pluck, keys/hammer, keys/strings
 
 Guitar VST3s (NAM, VoLum, ChowCentaur, Proteus) are official vendor
 downloads installed on the user machine under Documents\VST3.

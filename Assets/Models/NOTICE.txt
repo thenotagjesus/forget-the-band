@@ -37,10 +37,10 @@ copied next to ForgetTheBand.exe. Do not strip these notices.
    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
    SOFTWARE.
 
-3) Drum one-shots (CC0 1.0) — see Assets/Samples/LICENSE.txt
-   Virtuosity Drums (Austin McMahon / Versilian / Karoryfer) — acoustic/jazz
-   Big Rusty Drums (Karoryfer Samples) — metal kick/snare/hat + crash
-   BushDrum (EwonRael) — funk kit; Kenney Impact/Sci-Fi — FX
+3) Drum one-shots (CC0 1.0)  -  see Assets/Samples/LICENSE.txt
+   Virtuosity Drums (Austin McMahon / Versilian / Karoryfer)  -  acoustic/jazz
+   Big Rusty Drums (Karoryfer Samples)  -  metal kick/snare/hat + crash
+   BushDrum (EwonRael)  -  funk kit; Kenney Impact/Sci-Fi  -  FX
 
 4) Free guitar VST3s are official GitHub/vendor downloads placed in
-   Documents\\VST3 on the user PC. Not bundled in the git repo.
+   Documents\VST3 on the user PC. Not bundled in the git repo.
