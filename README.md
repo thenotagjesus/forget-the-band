@@ -23,13 +23,10 @@ Built with JUCE 8.0.8 (FetchContent, C++20). Windows-first desktop app. Version 
 - Kit picker is independent of jam Style. Bass / keys / FX voices stay in the code for restaff later.
 - Bar-aware drum fills every 8 bars (extra fills at high intensity) + crash on the next downbeat
 - Intensity raises hat density, fill chance, bass motion, key velocity, and FX spice
-- **Auto BPM follows the player until you press Lock Tempo.** Updates only on
-  guitar onsets (not every ~11 ms hop). Play floor ~0.008 RMS; idle ~1.5 s holds
-  BPM. First 8 onset consensus ±1.5 BPM, then ±0.25 per onset; once confident,
-  hold unless 4 consecutive onset estimates disagree by >8 BPM. Clamp 60–140,
-  with double/half fold so 16ths do not stick as double-time. Phase nudge is
-  gated (intensity > 0.45, 12% deadzone, 8%/6% caps) so 8th-note picking does
-  not yank the clock.
+- **Lock Tempo is the default.** The BPM slider is the clock. Auto BPM is
+  opt-in (Follow tempo / Auto BPM). When off, follow is hat density + velocity
+  from how hard you play, not tempo hunting. Auto BPM still updates only on
+  guitar onsets if you turn it on. Clamp 60–140.
 - **Export MIDI** writes the named-note transcription as a Standard MIDI `.mid` file
 - CC0 one-shots under `Assets/Samples/` (BushDrum, Kenney Impact/Sci-Fi, original DSP) with synth fallback
 - Optional 4-beat count-in click on Start Session (band silent until it finishes; default on)
@@ -37,7 +34,7 @@ Built with JUCE 8.0.8 (FetchContent, C++20). Windows-first desktop app. Version 
 - Stem recording: one WAV per bus plus stereo master (including `fx.wav`), 32-bit float; elapsed mm:ss + REC pulse
 - Bar counter (`1.1`, `1.2`, …)
 - Audio device picker (`AudioDeviceSelectorComponent`); WASAPI always; ASIO optional
-- Persists last audio device + buffer, and UI (style, auto key/BPM, amp/FX knobs, bus levels)
+- Persists last audio device + buffer, and UI (style, auto key, lock tempo, amp/FX knobs, bus levels)
 
 ## Architecture
 
@@ -70,12 +67,11 @@ for Basic Pitch, reads analysis atomics, renders the amp/FX and band, mixes, and
 (if armed) pushes interleaved stem planes into a second lock-free FIFO. Delay and
 reverb buffers are allocated in `prepare` only.
 
-**Analysis worker** drains Basic Pitch results (chroma / chord / key), locks
-tempo from aubio onset IOIs, and emits named-note MIDI. After a few bars of a
-stable key the key auto-lock can engage. **BPM never auto-locks** — Auto BPM
-updates only on guitar onsets (±1.5 BPM for the first 8, then ±0.25) and holds
-once confident until **Lock Tempo** is on. Manual key/BPM overrides bypass auto
-entirely. Homemade YIN remains as fallback if aubio is missing.
+**Analysis worker** drains Basic Pitch results (chroma / chord / key) and
+emits named-note MIDI. After a few bars of a stable key the key auto-lock can
+engage. **Lock Tempo is on by default** — the slider is BPM. Auto BPM is
+opt-in. Manual key/BPM overrides bypass auto entirely. Homemade YIN remains as
+fallback if aubio is missing.
 
 **Stem writer thread** drains the record FIFO and writes 32-bit float WAVs.
 Start and stop are atomic across all buses: guitar, drums, bass, keys, fx, master.
@@ -105,7 +101,7 @@ VST3 host: scan on a worker thread, dead-man's pedal, `suspendProcessing` before
 
 Two views in one window:
 
-- **Live band** — set Style, Form (Vamp / Song / 12-Bar / Wander), Scale, Tempo, Feel (Grid / Ahead / Behind / Swing), then **Start**. Count-in (optional) then groove. **Auto BPM** follows until **Lock Tempo**. **Keep Groove** (default on) holds a floor so rests do not kill the kit. Dual meters: You vs Band (band lags). Chord name + Roman + next-chord telegraph + 2D neck. **Export MIDI** saves the notes you played as a `.mid`.
+- **Live band** — set Style, Form (Vamp / Song / 12-Bar / Wander), Scale, Tempo, Feel (Grid / Ahead / Behind / Swing), then **Start**. Count-in (optional) then groove. **Lock Tempo** (default on) holds the slider BPM; Auto BPM is opt-in. **Keep Groove** (default on) holds a floor so rests do not kill the kit. Dual meters: You vs Band (band lags). Chord name + Roman + next-chord telegraph + 2D neck. **Export MIDI** saves the notes you played as a `.mid`.
 - **Arrange** — 8 audio tracks + Drums/Bass/Keys + Master. Play / Stop / Record / RTZ / Cycle. Record writes 32-bit float takes into `Documents/Centrophy/ForgetTheBand/projects/<name>/`. New / Open / Save / Bounce. Per-track 4 VST3 inserts. Undo for clip move/delete.
 
 Projects: `Documents/Centrophy/ForgetTheBand/projects/<name>/project.xml` + `audio/`.
@@ -124,7 +120,8 @@ Pocket floor (Keep Groove): kick 1+3, snare 2+4, even-8th hats (ride on jazz bea
 Push adds ghosts and an extra kick; fire adds 16th hats and metal four-on-floor.
 Every 8th bar the kit plays a tom run (high–mid–floor) plus snare build on the
 last four 16ths and crashes on the next downbeat. Kick/snare/hats/toms/ride/crash
-are independent synth voices with optional CC0 sample layers (not a sine+noise kit).
+are independent voices. CC0 one-shots lead when SessionSamples / Assets/Samples
+load; synth body is a quiet click/sub under kick/snare and is off for hats.
 
 ## Windows (Visual Studio 2022 Build Tools + CMake)
 

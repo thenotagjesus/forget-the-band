@@ -150,7 +150,7 @@ SessionUI::SessionUI (SessionProcessor& processor, juce::AudioDeviceManager& dev
     keyBox.addItemList ({ "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }, 1);
     keyBox.setSelectedId (5, juce::dontSendNotification); // E
     autoKey.setToggleState (true, juce::dontSendNotification);
-    autoBpm.setToggleState (true, juce::dontSendNotification);
+    autoBpm.setToggleState (false, juce::dontSendNotification);
     countInToggle.setToggleState (true, juce::dontSendNotification);
     addAndMakeVisible (keyBox);
     addAndMakeVisible (autoKey);
@@ -311,7 +311,7 @@ SessionUI::SessionUI (SessionProcessor& processor, juce::AudioDeviceManager& dev
     feelLbl.setText ("Feel", juce::dontSendNotification);
     phraseLbl.setText ("Phrase", juce::dontSendNotification);
     energyLbl.setText ("You / Band", juce::dontSendNotification);
-    lockTempo.setToggleState (false, juce::dontSendNotification);
+    lockTempo.setToggleState (true, juce::dontSendNotification);
     grooveFloor.setToggleState (true, juce::dontSendNotification);
     addAndMakeVisible (formBox);
     addAndMakeVisible (scaleBox);
@@ -462,14 +462,20 @@ void SessionUI::wireControls()
             proc.getAnalyzer().setAutoBpm (true);
             proc.getAnalyzer().setLockTempo (false);
             proc.getAnalyzer().unlockBpm();
+            proc.getAnalyzer().setBpmSeed ((float) bpmSlider.getValue());
         }
         else
+        {
+            lockTempo.setToggleState (true, juce::dontSendNotification);
             proc.getAnalyzer().setManualBpm ((float) bpmSlider.getValue());
+            proc.getAnalyzer().setAutoBpm (false);
+            proc.getAnalyzer().setLockTempo (true);
+        }
         markDirty();
     };
     bpmSlider.onValueChange = [this]
     {
-        if (! autoBpm.getToggleState())
+        if (! autoBpm.getToggleState() || lockTempo.getToggleState())
             proc.getAnalyzer().setManualBpm ((float) bpmSlider.getValue());
         markDirty();
     };
@@ -828,9 +834,20 @@ void SessionUI::wireControls()
     };
     lockTempo.onClick = [this]
     {
-        proc.getAnalyzer().setLockTempo (lockTempo.getToggleState());
-        if (! lockTempo.getToggleState() && autoBpm.getToggleState())
+        if (lockTempo.getToggleState())
+        {
+            autoBpm.setToggleState (false, juce::dontSendNotification);
+            proc.getAnalyzer().setManualBpm ((float) bpmSlider.getValue());
+            proc.getAnalyzer().setAutoBpm (false);
+            proc.getAnalyzer().setLockTempo (true);
+        }
+        else if (autoBpm.getToggleState())
+        {
             proc.getAnalyzer().unlockBpm();
+            proc.getAnalyzer().setBpmSeed ((float) bpmSlider.getValue());
+        }
+        else
+            proc.getAnalyzer().setLockTempo (false);
         markDirty();
     };
     lockIntensity.onClick = [this]
@@ -876,14 +893,19 @@ void SessionUI::applyToProcessor()
     else
         proc.getAnalyzer().setManualKey (keyBox.getSelectedId() - 1);
 
-    if (autoBpm.getToggleState())
+    if (autoBpm.getToggleState() && ! lockTempo.getToggleState())
     {
         proc.getAnalyzer().unlockBpm();
         proc.getAnalyzer().setBpmSeed ((float) bpmSlider.getValue());
-        proc.getAnalyzer().setLockTempo (lockTempo.getToggleState());
+        proc.getAnalyzer().setAutoBpm (true);
+        proc.getAnalyzer().setLockTempo (false);
     }
     else
+    {
         proc.getAnalyzer().setManualBpm ((float) bpmSlider.getValue());
+        proc.getAnalyzer().setAutoBpm (false);
+        proc.getAnalyzer().setLockTempo (true);
+    }
 
     proc.setCountInEnabled (countInToggle.getToggleState());
     proc.setInputGainDb ((float) gainSlider.getValue());
@@ -907,7 +929,7 @@ void SessionUI::applyToProcessor()
     proc.getBand().setFeel ((FollowerBand::Feel) juce::jmax (0, feelBox.getSelectedId() - 1));
     proc.getBand().setPhraseBars (phraseBox.getSelectedId() == 1 ? 4 : (phraseBox.getSelectedId() == 3 ? 16 : 8));
     proc.getFx().setDivision ((GuitarFx::Division) juce::jmax (0, delayDivBox.getSelectedId() - 1));
-    proc.getAnalyzer().setLockTempo (lockTempo.getToggleState());
+    proc.getAnalyzer().setLockTempo (lockTempo.getToggleState() || ! autoBpm.getToggleState());
     proc.getAnalyzer().setLockIntensity (lockIntensity.getToggleState());
     proc.setGrooveFloor (grooveFloor.getToggleState());
     proc.setFadeOnSilence (fadeSilence.getToggleState());
@@ -1448,19 +1470,32 @@ void SessionUI::timerCallback()
 
     if (autoKey.getToggleState() && ! keyBox.isMouseOverOrDragging())
         keyBox.setSelectedId (pc + 1, juce::dontSendNotification);
-    if (autoBpm.getToggleState() && ! bpmSlider.isMouseButtonDown())
+    if (autoBpm.getToggleState() && ! lockTempo.getToggleState() && ! bpmSlider.isMouseButtonDown())
         bpmSlider.setValue ((double) an.getBpm(), juce::dontSendNotification);
 
     if (proc.isRecording())
     {
         recPath.setText (proc.getWriter().getSessionDirectory().getFullPathName(),
                          juce::dontSendNotification);
+        recPath.setColour (juce::Label::textColourId, juce::Colour (SessionLookAndFeel::kMuted));
     }
     else
     {
-        const auto dir = proc.getWriter().getSessionDirectory();
-        if (dir.isDirectory())
-            recPath.setText ("Last  " + dir.getFullPathName(), juce::dontSendNotification);
+        const auto kit = proc.getSamples().statusLine();
+        if (kit.containsIgnoreCase ("missing"))
+        {
+            recPath.setText (kit, juce::dontSendNotification);
+            recPath.setColour (juce::Label::textColourId, juce::Colour (SessionLookAndFeel::kHunt));
+        }
+        else
+        {
+            const auto dir = proc.getWriter().getSessionDirectory();
+            if (dir.isDirectory())
+                recPath.setText ("Last  " + dir.getFullPathName(), juce::dontSendNotification);
+            else
+                recPath.setText (kit, juce::dontSendNotification);
+            recPath.setColour (juce::Label::textColourId, juce::Colour (SessionLookAndFeel::kMuted));
+        }
     }
 
     guitarStrip.setPeak (proc.getBusPeak (SessionProcessor::Guitar));

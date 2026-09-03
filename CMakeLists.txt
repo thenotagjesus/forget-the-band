@@ -145,7 +145,16 @@ target_link_libraries(Session
 
 if(TARGET SessionSamples)
     target_link_libraries(Session PRIVATE SessionSamples)
+    target_compile_definitions(Session PRIVATE FTB_HAS_SAMPLES=1)
+else()
+    target_compile_definitions(Session PRIVATE FTB_HAS_SAMPLES=0)
 endif()
+
+add_custom_command(TARGET Session POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/Assets/Samples"
+        "$<TARGET_FILE_DIR:Session>/Assets/Samples"
+    COMMENT "Copy Assets/Samples next to ForgetTheBand.exe")
 
 set(_session_pitch_model "${CMAKE_CURRENT_SOURCE_DIR}/Assets/Models/basic_pitch.onnx")
 if(EXISTS "${_session_pitch_model}")

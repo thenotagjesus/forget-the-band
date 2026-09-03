@@ -51,6 +51,8 @@ public:
     void scanUserFx();
 
     bool isReady (int slot) const noexcept;
+    /** One-line kit status for the UI ("Kit samples ready" / missing kick). */
+    juce::String statusLine() const;
     /** bus 0 = band (drums/bass/keys), bus 1 = FX chair. Audio thread. */
     void play (int slot, float gain, float rate = 1.0f, int bus = 0) noexcept;
     void playUser (int index, float gain, float rate = 1.0f, int bus = 1) noexcept;
@@ -83,6 +85,7 @@ private:
 
     bool loadWavFile (Buf& dest, const juce::File& f);
     bool loadWavStream (Buf& dest, juce::InputStream* in);
+    bool loadFromBinary (Buf& dest, const char* slotRel);
     void startVoice (const Buf* src, float gain, float rate, int bus) noexcept;
     void tryLoadSlot (int slot);
 

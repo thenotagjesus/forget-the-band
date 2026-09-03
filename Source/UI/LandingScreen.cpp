@@ -175,7 +175,7 @@ LandingScreen::LandingScreen (SessionProcessor& processor)
     addAndMakeVisible (keyBox);
 
     lockKey.setToggleState (false, juce::dontSendNotification);
-    slewToggle.setToggleState (true, juce::dontSendNotification);
+    slewToggle.setToggleState (false, juce::dontSendNotification);
     addAndMakeVisible (lockKey);
     addAndMakeVisible (slewToggle);
 

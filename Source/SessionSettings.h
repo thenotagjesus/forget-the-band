@@ -68,7 +68,7 @@ namespace SessionSettings
         int  keyPc   = 4;   // E
         bool followKey = true;
         float bpm    = 96.0f;
-        bool slew    = true; // tempo follows the player; false locks landing BPM
+        bool slew    = false; // Auto BPM opt-in; false = Lock Tempo, slider is BPM
         int  phraseBars = 8;
 
         void writeTo (juce::XmlElement& xml) const
@@ -91,6 +91,7 @@ namespace SessionSettings
             xml.setAttribute ("slew",    slew ? 1 : 0);
             xml.setAttribute ("autoBpm", slew ? 1 : 0);
             xml.setAttribute ("lockTempo", slew ? 0 : 1);
+            xml.setAttribute ("tempoLocked", slew ? 0 : 1);
             xml.setAttribute ("phrase",  phraseBars);
         }
 
@@ -130,11 +131,12 @@ namespace SessionSettings
             if (s.phraseBars <= 4) s.phraseBars = 4;
             else if (s.phraseBars >= 16) s.phraseBars = 16;
             else s.phraseBars = 8;
-            if (xml.hasAttribute ("slew"))
-                s.slew = xml.getIntAttribute ("slew") != 0;
+            // tempoLocked is the new canonical default (locked). Ignore legacy
+            // slew/autoBpm that defaulted ON so Auto BPM is opt-in after this build.
+            if (xml.hasAttribute ("tempoLocked"))
+                s.slew = xml.getIntAttribute ("tempoLocked") == 0;
             else
-                s.slew = xml.getIntAttribute ("lockTempo", 0) == 0
-                      && xml.getIntAttribute ("autoBpm", 1) != 0;
+                s.slew = false;
             return s;
         }
     };

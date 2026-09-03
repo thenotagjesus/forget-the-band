@@ -1,11 +1,15 @@
 #include "DSP/SampleBank.h"
 #include "SessionSettings.h"
 
-#if __has_include("SessionSamples.h")
+#ifndef FTB_HAS_SAMPLES
+ #if __has_include("SessionSamples.h")
+  #include "SessionSamples.h"
+  #define FTB_HAS_SAMPLES 1
+ #else
+  #define FTB_HAS_SAMPLES 0
+ #endif
+#elif FTB_HAS_SAMPLES
  #include "SessionSamples.h"
- #define FTB_HAS_SAMPLES 1
-#else
- #define FTB_HAS_SAMPLES 0
 #endif
 
 const char* SampleBank::slotFile (int slot)
@@ -98,17 +102,8 @@ void SampleBank::tryLoadSlot (int slot)
     dest.ready.store (0, std::memory_order_release);
 
 #if FTB_HAS_SAMPLES
-    {
-        juce::String res = juce::File (slotFile (slot)).getFileName();
-        res = res.replaceCharacter ('-', '_').replaceCharacter ('.', '_');
-        int sz = 0;
-        if (const char* data = SessionSamples::getNamedResource (res.toRawUTF8(), sz))
-        {
-            auto* mis = new juce::MemoryInputStream (data, (size_t) sz, false);
-            if (loadWavStream (dest, mis))
-                return;
-        }
-    }
+    if (loadFromBinary (dest, slotFile (slot)))
+        return;
 #endif
 
     const auto dir = bundledDir();
@@ -118,6 +113,71 @@ void SampleBank::tryLoadSlot (int slot)
         if (loadWavFile (dest, f))
             return;
     }
+}
+
+bool SampleBank::loadFromBinary (Buf& dest, const char* slotRel)
+{
+#if ! FTB_HAS_SAMPLES
+    juce::ignoreUnused (dest, slotRel);
+    return false;
+#else
+    auto tryRes = [this, &dest] (const juce::String& name) -> bool
+    {
+        if (name.isEmpty())
+            return false;
+        int sz = 0;
+        if (const char* data = SessionSamples::getNamedResource (name.toRawUTF8(), sz))
+        {
+            auto* mis = new juce::MemoryInputStream (data, (size_t) sz, false);
+            return loadWavStream (dest, mis);
+        }
+        return false;
+    };
+
+    const juce::File rel (slotRel);
+    const juce::String fileName = rel.getFileName();
+    auto ident = [] (juce::String s)
+    {
+        return s.replaceCharacter ('-', '_')
+                .replaceCharacter (' ', '_')
+                .replaceCharacter ('/', '_')
+                .replaceCharacter ('\\', '_')
+                .replaceCharacter ('.', '_');
+    };
+    const juce::String fileId = ident (fileName);                 // acoustic_kick_wav
+    const juce::String pathId = ident (juce::String (slotRel));   // drums_acoustic_kick_wav
+    if (tryRes (fileId))
+        return true;
+    if (pathId != fileId && tryRes (pathId))
+        return true;
+
+    for (int i = 0; i < SessionSamples::namedResourceListSize; ++i)
+    {
+        const juce::String orig (SessionSamples::originalFilenames[i]);
+        const juce::String res  (SessionSamples::namedResourceList[i]);
+        if (orig == slotRel || orig == fileName
+            || orig.endsWithIgnoreCase (fileName)
+            || res == fileId || res == pathId
+            || res.endsWith ("_" + fileId) || res.endsWith (fileId))
+        {
+            if (tryRes (res))
+                return true;
+        }
+    }
+    return false;
+#endif
+}
+
+juce::String SampleBank::statusLine() const
+{
+    const bool kick = isReady (KickAcoustic) || isReady (KickFunk) || isReady (KickMetal);
+    const bool snare = isReady (SnareAcoustic) || isReady (SnareFunk) || isReady (SnareMetal);
+    const bool hat = isReady (HatAcoustic) || isReady (HatFunk) || isReady (HatMetal);
+    if (kick && snare && hat)
+        return "Kit samples ready";
+    if (! kick)
+        return "Kit: synth (kick sample missing)";
+    return "Kit: partial samples";
 }
 
 bool SampleBank::loadWavFile (Buf& dest, const juce::File& f)

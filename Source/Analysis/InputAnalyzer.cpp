@@ -128,6 +128,7 @@ void InputAnalyzer::setManualBpm (float v) noexcept
 {
     v = juce::jlimit (60.0f, 180.0f, v);
     autoBpm.store (0, std::memory_order_relaxed);
+    lockTempo.store (1, std::memory_order_relaxed);
     bpmLocked.store (1, std::memory_order_relaxed);
     bpm.store (v, std::memory_order_relaxed);
     bpmSmoothed = v;

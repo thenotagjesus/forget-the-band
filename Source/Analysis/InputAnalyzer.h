@@ -145,8 +145,8 @@ private:
     std::atomic<int>   keyLocked { 0 };
     std::atomic<int>   bpmLocked { 0 };
     std::atomic<int>   autoKey { 1 };
-    std::atomic<int>   autoBpm { 1 };
-    std::atomic<int>   lockTempo { 0 };
+    std::atomic<int>   autoBpm { 0 };
+    std::atomic<int>   lockTempo { 1 };
     std::atomic<int>   lockIntensity { 0 };
     std::atomic<int>   energyDrift { 0 };
     std::atomic<int>   engaged { 0 };

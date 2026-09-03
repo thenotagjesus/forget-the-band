@@ -206,11 +206,13 @@ void SessionProcessor::applyJamSetup (const SessionSettings::Setup& s) noexcept
     {
         analyzer.unlockBpm();
         analyzer.setBpmSeed (s.bpm);
+        analyzer.setAutoBpm (true);
         analyzer.setLockTempo (false);
     }
     else
     {
         analyzer.setManualBpm (s.bpm);
+        analyzer.setAutoBpm (false);
         analyzer.setLockTempo (true);
     }
 

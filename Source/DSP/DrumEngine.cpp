@@ -67,7 +67,7 @@ void DrumEngine::setKit (int k) noexcept
             hHzA = 8600.0f; hHzB = 11200.0f;
             hClosedDec = 0.9905f; hOpenDec = 0.9986f;
             rDec = 0.9984f;
-            makeup = 1.95f;
+            makeup = 1.10f;
             break;
         case 2: // Jazz — rounder, less click
             kHp.setHighPass (fsr, 26.0f, 0.70f);
@@ -89,7 +89,7 @@ void DrumEngine::setKit (int k) noexcept
             hHzA = 6400.0f; hHzB = 9100.0f;
             hClosedDec = 0.9955f; hOpenDec = 0.99935f;
             rDec = 0.99912f;
-            makeup = 1.70f;
+            makeup = 1.10f;
             break;
         case 3: // Funk — drier, more snap
             kHp.setHighPass (fsr, 32.0f, 0.70f);
@@ -111,7 +111,7 @@ void DrumEngine::setKit (int k) noexcept
             hHzA = 7600.0f; hHzB = 10800.0f;
             hClosedDec = 0.9922f; hOpenDec = 0.9989f;
             rDec = 0.9985f;
-            makeup = 1.80f;
+            makeup = 1.10f;
             break;
         case 4: // Electro
             kHp.setHighPass (fsr, 36.0f, 0.72f);
@@ -133,7 +133,7 @@ void DrumEngine::setKit (int k) noexcept
             hHzA = 9200.0f; hHzB = 12100.0f;
             hClosedDec = 0.9895f; hOpenDec = 0.9982f;
             rDec = 0.9980f;
-            makeup = 1.88f;
+            makeup = 1.10f;
             break;
         default: // Acoustic
             kHp.setHighPass (fsr, 30.0f, 0.70f);
@@ -155,7 +155,7 @@ void DrumEngine::setKit (int k) noexcept
             hHzA = 7800.0f; hHzB = 10400.0f;
             hClosedDec = 0.9938f; hOpenDec = 0.99918f;
             rDec = 0.99888f;
-            makeup = 1.85f;
+            makeup = 1.10f;
             break;
     }
 }
@@ -210,7 +210,7 @@ void DrumEngine::trigKick (float vel) noexcept
     kPhase = 0;
     kSubPhase = 0;
     if (samples != nullptr && samples->isReady (kickSlot()))
-        samples->play (kickSlot(), vel * 0.70f, 1.0f, 0);
+        samples->play (kickSlot(), vel * 0.88f, 1.0f, 0);
 }
 
 void DrumEngine::trigSnare (float vel, bool ghost) noexcept
@@ -231,30 +231,35 @@ void DrumEngine::trigSnare (float vel, bool ghost) noexcept
         sDec = 0.99905f;
     sPhase = 0;
     if (samples != nullptr && samples->isReady (snareSlot()))
-        samples->play (snareSlot(), v * 0.70f, 1.0f, 0);
+        samples->play (snareSlot(), v * 0.88f, 1.0f, 0);
 }
 
 void DrumEngine::trigHat (float vel, bool open) noexcept
 {
     vel = juce::jlimit (0.0f, 1.0f, vel);
-    if (open)
+    const bool hatReady = samples != nullptr && samples->isReady (hatSlot());
+    if (! hatReady)
     {
-        hOpen = juce::jmax (hOpen, vel);
-        hClosed *= 0.22f;
+        if (open)
+        {
+            hOpen = juce::jmax (hOpen, vel);
+            hClosed *= 0.22f;
+        }
+        else
+        {
+            hClosed = juce::jmax (hClosed, vel);
+            hOpen *= 0.50f; // closed chokes open
+        }
     }
-    else
-    {
-        hClosed = juce::jmax (hClosed, vel);
-        hOpen *= 0.50f; // closed chokes open
-    }
-    // Synth hat can still tick. Do not retrigger overlapping hat one-shots
-    // (first ~30 ms of the previous hat sample voice) — they click.
-    if (samples != nullptr && samples->isReady (hatSlot()))
+    else if (open)
+        hClosed = 0.0f; // sample hats: open still chokes a leftover synth closed
+    // Do not retrigger overlapping hat one-shots (first ~30 ms) — they click.
+    if (hatReady)
     {
         const float minGap = 0.030f * (float) sr;
         if (hatSampleAge >= minGap)
         {
-            samples->play (hatSlot(), vel * 0.70f, 1.0f, 0);
+            samples->play (hatSlot(), vel * 0.88f, 1.0f, 0);
             hatSampleAge = 0.0f;
         }
     }
@@ -288,7 +293,7 @@ void DrumEngine::trigCrash (float vel) noexcept
     cEnv = juce::jmax (cEnv, vel);
     cPh.fill (0);
     if (samples != nullptr && samples->isReady (SampleBank::Crash))
-        samples->play (SampleBank::Crash, vel * 0.70f, 1.0f, 0);
+        samples->play (SampleBank::Crash, vel * 0.88f, 1.0f, 0);
 }
 
 void DrumEngine::render (float& left, float& right) noexcept
@@ -370,38 +375,56 @@ void DrumEngine::render (float& left, float& right) noexcept
     if (samples != nullptr)
         samples->mix (0, sampL, sampR);
 
-    // Synth body ~0.45 under sample ~0.7 (already in play() gain).
-    const float bodyAmt = 0.45f;
-    float l = kick * 0.95f * bodyAmt
-            + sn   * 0.82f * bodyAmt
-            + hats * 1.10f * bodyAmt
-            + toms * 0.90f * bodyAmt
-            + ride * 0.88f * bodyAmt
-            + crash * 0.80f * bodyAmt
+    const bool kickOk  = samples != nullptr && samples->isReady (kickSlot());
+    const bool snareOk = samples != nullptr && samples->isReady (snareSlot());
+    const bool hatOk   = samples != nullptr && samples->isReady (hatSlot());
+    const bool crashOk = samples != nullptr && samples->isReady (SampleBank::Crash);
+    const bool sampleLed = kickOk || snareOk || hatOk;
+
+    // Sample-led: keep a little kick click/sub (0.08). Hats are sample-only.
+    const float kickAmt  = kickOk  ? 0.08f : 1.0f;
+    const float snareAmt = snareOk ? 0.08f : 1.0f;
+    const float hatAmt   = hatOk   ? 0.00f : 1.0f;
+    const float crashAmt = crashOk ? 0.08f : 1.0f;
+
+    float l = kick * 0.95f * kickAmt
+            + sn   * 0.82f * snareAmt
+            + hats * 1.10f * hatAmt
+            + toms * 0.90f
+            + ride * 0.88f
+            + crash * 0.80f * crashAmt
             + sampL;
-    float r = kick * 0.95f * bodyAmt
-            + sn   * 1.12f * bodyAmt
-            + hats * 0.86f * bodyAmt
-            + toms * 0.90f * bodyAmt
-            + ride * 0.92f * bodyAmt
-            + crash * 0.84f * bodyAmt
+    float r = kick * 0.95f * kickAmt
+            + sn   * 1.12f * snareAmt
+            + hats * 0.86f * hatAmt
+            + toms * 0.90f
+            + ride * 0.92f
+            + crash * 0.84f * crashAmt
             + sampR;
 
-    // One-pole envelope follower compressor: thresh 0.35, ratio 2.5
-    // Soft attack so kicks do not click-pump.
+    // Gentler glue: thresh 0.50, ratio 1.6, slower attack.
     const float mono = 0.5f * (std::abs (l) + std::abs (r));
-    const float coef = (mono > envFollow) ? 0.004f : 0.002f;
+    const float coef = (mono > envFollow) ? 0.0025f : 0.0012f;
     envFollow += (mono - envFollow) * coef;
     float gr = 1.0f;
-    if (envFollow > 0.35f)
+    if (envFollow > 0.50f)
     {
-        const float compressed = 0.35f + (envFollow - 0.35f) / 2.5f;
+        const float compressed = 0.50f + (envFollow - 0.50f) / 1.6f;
         gr = compressed / envFollow;
     }
-    l *= gr * makeup;
-    r *= gr * makeup;
-    l = std::tanh (l);
-    r = std::tanh (r);
+    const float busMakeup = sampleLed ? 1.05f : makeup;
+    l *= gr * busMakeup;
+    r *= gr * busMakeup;
+    if (! sampleLed)
+    {
+        l = std::tanh (l * 0.4f) * 1.2f;
+        r = std::tanh (r * 0.4f) * 1.2f;
+    }
+    else
+    {
+        l = juce::jlimit (-1.15f, 1.15f, l);
+        r = juce::jlimit (-1.15f, 1.15f, r);
+    }
 
     left  = l;
     right = r;

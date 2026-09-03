@@ -8,9 +8,10 @@
 
 /**
  * RT-safe drum kit: independent kick / snare / hats / toms / ride / crash
- * plus a glue bus. SampleBank one-shots layer on top of the synth body
- * (sample ~0.7, body ~0.45). Missing files still sound like a kit.
- * Audio thread: trig* + render only. No alloc, no locks.
+ * plus a glue bus. SampleBank one-shots lead when ready (synth body
+ * 0.08 max for kick/snare click; hats are sample-only). Missing files
+ * still sound like a kit with a gentler bus. Audio thread: trig* + render
+ * only. No alloc, no locks.
  */
 class DrumEngine
 {
@@ -26,7 +27,7 @@ public:
     void trigRide (float vel) noexcept;
     void trigCrash (float vel) noexcept;
 
-    /** One sample. Mixes SampleBank bus 0 + synth, then tanh + compressor. */
+    /** One sample. Mixes SampleBank bus 0 + optional synth, then glue. */
     void render (float& left, float& right) noexcept;
 
 private:
@@ -79,5 +80,5 @@ private:
 
     // Drum bus
     float envFollow = 0.0f;
-    float makeup = 1.85f;
+    float makeup = 1.10f;
 };
