@@ -361,6 +361,8 @@ SessionUI::SessionUI (SessionProcessor& processor, juce::AudioDeviceManager& dev
 
     loadSettings();
     wireControls();
+    if (insaneBtn.getToggleState())
+        suggestInsanePalette (false);
     guitarStrip.mute.setToggleState (false, juce::dontSendNotification);
     guitarStrip.mon.setToggleState (true, juce::dontSendNotification);
     proc.setBusMute (SessionProcessor::Guitar, false);
@@ -385,6 +387,33 @@ SessionUI::~SessionUI()
 void SessionUI::markDirty()
 {
     settingsDirty = true;
+}
+
+void SessionUI::suggestInsanePalette (bool force)
+{
+    // Metal kit / Pick bass / Pad strings / Hits FX. Don't clobber a custom combo
+    // unless this is a forced toggle-on.
+    const int metal = (int) FollowerBand::DrumKit::Metal + 1;
+    const int pick  = (int) FollowerBand::BassVoice::Pick + 1;
+    const int pad   = (int) FollowerBand::KeysVoice::Pad + 1;
+    const int organ = (int) FollowerBand::KeysVoice::Organ + 1;
+    const int hits  = (int) FxChair::Voice::Hits + 1;
+    const int kitId  = kitBox.getSelectedId();
+    const int bassId = bassVoiceBox.getSelectedId();
+    const int keysId = keysVoiceBox.getSelectedId();
+    const bool stockish = (kitId == 1 || kitId == metal)
+                       && (bassId == 1 || bassId == pick)
+                       && (keysId == 1 || keysId == organ || keysId == pad);
+    if (! force && ! stockish)
+        return;
+    kitBox.setSelectedId (metal, juce::dontSendNotification);
+    bassVoiceBox.setSelectedId (pick, juce::dontSendNotification);
+    keysVoiceBox.setSelectedId (pad, juce::dontSendNotification);
+    fxVoiceBox.setSelectedId (hits, juce::dontSendNotification);
+    proc.getBand().setDrumKit (FollowerBand::DrumKit::Metal);
+    proc.getBand().setBassVoice (FollowerBand::BassVoice::Pick);
+    proc.getBand().setKeysVoice (FollowerBand::KeysVoice::Pad);
+    proc.getFxChair().setVoice (FxChair::Voice::Hits);
 }
 
 void SessionUI::wireControls()
@@ -613,6 +642,9 @@ void SessionUI::wireControls()
     insaneBtn.onClick = [this]
     {
         proc.getAmp().setInsane (insaneBtn.getToggleState());
+        proc.getFxChair().setIndustrial (insaneBtn.getToggleState());
+        if (insaneBtn.getToggleState())
+            suggestInsanePalette (true);
         markDirty();
     };
     scanBtn.onClick = [this]
@@ -879,6 +911,7 @@ void SessionUI::applyToProcessor()
     proc.setBusLevel (SessionProcessor::Master, (float) masterStrip.level.getValue());
     proc.setAmpBypass (ampBypass.getToggleState());
     proc.getAmp().setInsane (insaneBtn.getToggleState());
+    proc.getFxChair().setIndustrial (insaneBtn.getToggleState());
     proc.getBand().setForm ((FollowerBand::Form) juce::jmax (0, formBox.getSelectedId() - 1));
     proc.getBand().setScale ((FollowerBand::Scale) juce::jmax (0, scaleBox.getSelectedId() - 1));
     proc.getBand().setFeel ((FollowerBand::Feel) juce::jmax (0, feelBox.getSelectedId() - 1));

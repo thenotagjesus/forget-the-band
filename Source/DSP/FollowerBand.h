@@ -262,7 +262,7 @@ private:
     int keyShift = 0;
     uint32_t rng = 0xC3A10Fu;
 
-    Biquad hatHp, snareBp, bassLp, keyLp, tomBp;
+    Biquad hatHp, snareBp, bassLp, keyLp, tomBp, kickHp;
 
     SampleBank* samples = nullptr;
 };

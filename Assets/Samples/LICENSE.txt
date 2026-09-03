@@ -14,9 +14,9 @@ Do not add copyrighted kits, Rocksmith rips, Splice paid packs, or CC-BY-NC.
      drums/funk_kick.wav     (kick.wav)
      drums/funk_snare.wav    (snare-m.wav)
      drums/funk_hat.wav      (hihat-closed.wav)
-     drums/metal_kick.wav    (kick-alt.wav)
-     drums/metal_snare.wav   (snare-h.wav)
-     drums/metal_hat.wav     (hihat-open.wav)
+     drums/metal_kick.wav    replaced by original DSP industrial kick (was kick-alt.wav)
+     drums/metal_snare.wav   replaced by original DSP industrial snare (was snare-h.wav)
+     drums/metal_hat.wav     replaced by original DSP industrial hat (was hihat-open.wav)
      drums/crash.wav         (crash.wav)
      fx/clap.wav             (clap.wav)
 
@@ -50,5 +50,9 @@ Do not add copyrighted kits, Rocksmith rips, Splice paid packs, or CC-BY-NC.
      drums/acoustic_hat.wav
      bass/pluck.wav
      keys/hammer.wav
+     keys/strings.wav
+     drums/metal_kick.wav
+     drums/metal_snare.wav
+     drums/metal_hat.wav
 
 User drops (not shipped): Documents/Centrophy/ForgetTheBand/samples/fx

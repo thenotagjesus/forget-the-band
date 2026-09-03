@@ -36,6 +36,7 @@ public:
         FxClap,
         FxFoleyWood,
         FxFoleyGlass,
+        KeysStrings,
         NumBundled
     };
 

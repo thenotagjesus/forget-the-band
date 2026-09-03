@@ -69,18 +69,23 @@ void FxChair::triggerSampler (Voice vox, float inten, bool fill, bool crash, boo
     const float g = 0.35f + 0.55f * inten;
     auto want = [&] (Voice v) { return vox == Voice::Auto || vox == v; };
 
+    const bool ind = industrial.load (std::memory_order_relaxed) != 0;
     if (crash && want (Voice::Hits))
     {
         bank->play (SampleBank::Crash, g * 0.55f, 1.0f, 1);
-        bank->play (SampleBank::FxBoom, g * 0.70f, 1.0f, 1);
-        bank->play (SampleBank::FxHit, g * 0.45f, 1.0f, 1);
+        bank->play (SampleBank::FxBoom, g * (ind ? 0.88f : 0.70f), 1.0f, 1);
+        bank->play (ind ? SampleBank::FxImpactMetal : SampleBank::FxHit,
+                    g * (ind ? 0.70f : 0.45f), 1.0f, 1);
     }
     if (fill && step >= 12 && want (Voice::Risers))
         bank->play (SampleBank::FxImpactBell, g * 0.40f, 0.85f, 1);
     if (phrase && want (Voice::Hits))
-        bank->play (SampleBank::FxImpactPlate, g * 0.50f, 1.0f, 1);
-    if (crash && want (Voice::Foley))
+        bank->play (ind ? SampleBank::FxImpactMetal : SampleBank::FxImpactPlate,
+                    g * (ind ? 0.62f : 0.50f), 1.0f, 1);
+    if (crash && want (Voice::Foley) && ! ind)
         bank->play (SampleBank::FxFoleyGlass, g * 0.40f, 1.0f, 1);
+    if (ind && crash && want (Voice::Hits))
+        bank->play (SampleBank::FxBoom, g * 0.40f, 0.85f, 1);
 
     const int uc = bank->userCount();
     if (uc > 0 && (crash || (fill && step == 14) || (inten > 0.72f && step == 0)))

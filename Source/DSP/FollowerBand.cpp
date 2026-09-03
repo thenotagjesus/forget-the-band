@@ -169,12 +169,13 @@ void FollowerBand::prepare (double sr, SampleBank* bank)
     bassLp.setLowPass (fsr, 420.0f, 0.70f);
     keyLp.setLowPass (fsr, 2400.0f, 0.65f);
     tomBp.setPeaking (fsr, 220.0f, 0.85f, 5.0f);
+    kickHp.setHighPass (fsr, 28.0f, 0.70f);
     reset();
 }
 
 void FollowerBand::reset() noexcept
 {
-    hatHp.reset(); snareBp.reset(); bassLp.reset(); keyLp.reset(); tomBp.reset();
+    hatHp.reset(); snareBp.reset(); bassLp.reset(); keyLp.reset(); tomBp.reset(); kickHp.reset();
     kickEnv = snareEnv = hatEnv = rideEnv = crashEnv = tomEnv = 0;
     kickPhase = snareTonePhase = hatPhase = ridePhase = tomPhase = 0;
     kickClick = 0;
@@ -244,20 +245,23 @@ void FollowerBand::applyTimbre (DrumKit kit, BassVoice bv, KeysVoice kv) noexcep
     switch (kit)
     {
         case DrumKit::Metal:
-            hatHp.setHighPass (fsr, 7400.0f, 0.70f);
-            snareBp.setPeaking (fsr, 2600.0f, 0.80f, 8.0f);
-            kickPitchRate = 0.99855f;
-            kickFloorHz = 48.0f;
-            kickNoiseAmt = 0.22f;
-            kickDecayUse = 0.9987f;
-            snareDecayUse = 0.99855f;
-            snareToneAmt = 0.38f;
-            snareToneHz = 220.0f;
-            hatGain = 1.15f;
-            rideGain = 0.70f;
+            // Industrial: tighter kick, 2–3 kHz snare crack, thin metallic hats.
+            hatHp.setHighPass (fsr, 8800.0f, 0.78f);
+            snareBp.setPeaking (fsr, 2650.0f, 0.95f, 10.0f);
+            kickHp.setHighPass (fsr, 95.0f, 0.75f);
+            kickPitchRate = 0.99775f;
+            kickFloorHz = 62.0f;
+            kickNoiseAmt = 0.38f;
+            kickDecayUse = 0.99715f;
+            snareDecayUse = 0.99775f;
+            snareToneAmt = 0.10f;
+            snareToneHz = 280.0f;
+            hatGain = 1.02f;
+            rideGain = 0.42f;
             break;
         case DrumKit::Jazz:
             hatHp.setHighPass (fsr, 4800.0f, 0.65f);
+            kickHp.setHighPass (fsr, 28.0f, 0.70f);
             snareBp.setPeaking (fsr, 1250.0f, 0.70f, 3.5f);
             kickPitchRate = 0.99935f;
             kickFloorHz = 40.0f;
@@ -271,6 +275,7 @@ void FollowerBand::applyTimbre (DrumKit kit, BassVoice bv, KeysVoice kv) noexcep
             break;
         case DrumKit::Funk:
             hatHp.setHighPass (fsr, 7000.0f, 0.72f);
+            kickHp.setHighPass (fsr, 28.0f, 0.70f);
             snareBp.setPeaking (fsr, 2100.0f, 0.85f, 5.5f);
             kickPitchRate = 0.9988f;
             kickFloorHz = 52.0f;
@@ -284,6 +289,7 @@ void FollowerBand::applyTimbre (DrumKit kit, BassVoice bv, KeysVoice kv) noexcep
             break;
         case DrumKit::Electro:
             hatHp.setHighPass (fsr, 9200.0f, 0.80f);
+            kickHp.setHighPass (fsr, 28.0f, 0.70f);
             snareBp.setPeaking (fsr, 1800.0f, 0.90f, 7.0f);
             kickPitchRate = 0.99958f;
             kickFloorHz = 38.0f;
@@ -297,6 +303,7 @@ void FollowerBand::applyTimbre (DrumKit kit, BassVoice bv, KeysVoice kv) noexcep
             break;
         default: // Acoustic
             hatHp.setHighPass (fsr, 6200.0f, 0.70f);
+            kickHp.setHighPass (fsr, 28.0f, 0.70f);
             snareBp.setPeaking (fsr, 1900.0f, 0.75f, 6.0f);
             kickPitchRate = 0.99915f;
             kickFloorHz = 42.0f;
@@ -313,9 +320,10 @@ void FollowerBand::applyTimbre (DrumKit kit, BassVoice bv, KeysVoice kv) noexcep
     switch (bv)
     {
         case BassVoice::Pick:
-            bassLp.setLowPass (fsr, 1180.0f, 0.70f);
-            bassSawAmt = 0.92f; bassSqrAmt = 0.0f; bassSubAmt = 0.18f;
-            bassPluckAmt = 0.48f; bassPluckDecay = 0.9915f; bassPopAmt = 0.08f;
+            // Mid grind so pick bass sits under SAWVI, not a clean DI.
+            bassLp.setLowPass (fsr, 1680.0f, 0.62f);
+            bassSawAmt = 1.05f; bassSqrAmt = 0.28f; bassSubAmt = 0.12f;
+            bassPluckAmt = 0.58f; bassPluckDecay = 0.9890f; bassPopAmt = 0.14f;
             break;
         case BassVoice::Synth:
             bassLp.setLowPass (fsr, 210.0f, 0.80f);
@@ -343,7 +351,7 @@ void FollowerBand::applyTimbre (DrumKit kit, BassVoice bv, KeysVoice kv) noexcep
             keyLp.setLowPass (fsr, 2600.0f, 0.70f);
             break;
         case KeysVoice::Pad:
-            keyLp.setLowPass (fsr, 1700.0f, 0.60f);
+            keyLp.setLowPass (fsr, 1180.0f, 0.55f); // dark synth-strings
             break;
         case KeysVoice::Clav:
             keyLp.setPeaking (fsr, 1120.0f, 0.85f, 7.0f);
@@ -382,14 +390,15 @@ void FollowerBand::hitKeys (KeysVoice kv, float vel) noexcept
             keyStab = false;
             break;
         case KeysVoice::Pad:
-            keyTargetEnv = vel * 0.62f;
-            keyLag = 0.00016f;
-            keyHarmonic = 0.06f;
+            // Slow bow, 200–400 Hz body, almost no hammer.
+            keyTargetEnv = vel * 0.70f;
+            keyLag = 0.00007f;
+            keyHarmonic = 0.20f;
             keyTine = 0.0f;
-            keyDetune = 0.0045f;
+            keyDetune = 0.0060f;
             keyPercEnv = 0;
             keyPercDecay = 0.999f;
-            keyTargetDecay = 0.99988f;
+            keyTargetDecay = 0.99993f;
             keyStab = false;
             break;
         case KeysVoice::Clav:
@@ -642,7 +651,7 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
         kickEnv = juce::jmax (kickEnv, sv);
         switch (kit)
         {
-            case DrumKit::Metal:    kickHz = 128.0f; kickClick = juce::jmax (kickClick, sv); break;
+            case DrumKit::Metal:    kickHz = 158.0f; kickClick = juce::jmax (kickClick, sv * 1.45f); break;
             case DrumKit::Jazz:     kickHz = 72.0f;  break;
             case DrumKit::Funk:     kickHz = 108.0f; break;
             case DrumKit::Electro:  kickHz = 82.0f;  break;
@@ -664,7 +673,7 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
         hatOpen = open;
         switch (kit)
         {
-            case DrumKit::Metal:    hatDecayUse = open ? 0.9986f : 0.9958f; break;
+            case DrumKit::Metal:    hatDecayUse = open ? 0.9974f : 0.9935f; break;
             case DrumKit::Jazz:     hatDecayUse = open ? 0.9992f : 0.9978f; break;
             case DrumKit::Funk:     hatDecayUse = open ? 0.9988f : 0.9948f; break;
             case DrumKit::Electro:  hatDecayUse = open ? 0.9975f : 0.9905f; break;
@@ -830,19 +839,29 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
         setKeyVoicing (st, deg, keyPc);
         const float vel = 0.47f + 0.31f * inten;
         hitKeys (kv, vel);
-        if (samples != nullptr && samples->isReady (SampleBank::KeysHammer)
-            && (kv == KeysVoice::Piano || kv == KeysVoice::EP))
+        if (samples != nullptr)
         {
-            for (int v = 0; v < 4; ++v)
+            const int keySlot = (kv == KeysVoice::Pad && samples->isReady (SampleBank::KeysStrings))
+                                    ? SampleBank::KeysStrings
+                                    : ((kv == KeysVoice::Piano || kv == KeysVoice::EP)
+                                           && samples->isReady (SampleBank::KeysHammer)
+                                           ? SampleBank::KeysHammer : -1);
+            if (keySlot >= 0)
             {
-                const float hz = keyHz[(size_t) v];
-                if (hz < 20.0f) continue;
-                const float midiF = 69.0f + 12.0f * std::log2 (hz / 440.0f);
-                const float rate = std::pow (2.0f, (midiF - 60.0f) / 12.0f);
-                samples->play (SampleBank::KeysHammer, vel * (v == 0 ? 0.55f : 0.28f), rate, 3);
+                for (int v = 0; v < 4; ++v)
+                {
+                    const float hz = keyHz[(size_t) v];
+                    if (hz < 20.0f) continue;
+                    const float midiF = 69.0f + 12.0f * std::log2 (hz / 440.0f);
+                    const float rate = std::pow (2.0f, (midiF - 60.0f) / 12.0f);
+                    const float g = (kv == KeysVoice::Pad)
+                                        ? vel * (v == 0 ? 0.48f : 0.22f)
+                                        : vel * (v == 0 ? 0.55f : 0.28f);
+                    samples->play (keySlot, g, rate, 3);
+                }
+                keyEnv *= (kv == KeysVoice::Pad ? 0.48f : 0.35f);
+                keyTargetEnv *= (kv == KeysVoice::Pad ? 0.48f : 0.35f);
             }
-            keyEnv *= 0.35f;
-            keyTargetEnv *= 0.35f;
         }
     }
 }
@@ -981,8 +1000,9 @@ void FollowerBand::process (int keyPc,
         if (kickHz < kickFloorHz) kickHz = kickFloorHz;
         float kick = oscSin (kickPhase, kickHz) * kickEnv
                    + kickNoiseAmt * noise() * kickEnv * kickEnv;
-        kick += kickClick * noise() * 0.35f;
-        kickClick *= 0.96f;
+        kick += kickClick * noise() * 0.45f;
+        kick = kickHp.process (kick);
+        kickClick *= 0.94f;
         kickEnv *= kickDecay;
 
         float snN = snareBp.process (noise());
@@ -1026,6 +1046,8 @@ void FollowerBand::process (int keyPc,
         float bs = bassSawAmt * saw + bassSqrAmt * sqr + bassSubAmt * sub;
         if (bv == BassVoice::Slap)
             bs = 0.85f * sub * 1.15f + 0.35f * saw; // thump + a little edge
+        if (bv == BassVoice::Pick)
+            bs += 0.22f * saw * std::fabs (saw); // even mid grind under SAWVI
         bs = bassLp.process (bs) * bassEnv;
         bs += bassPluckAmt * saw * bassPluck;
         bs += bassPop * noise() * bassPopAmt;
@@ -1053,6 +1075,8 @@ void FollowerBand::process (int keyPc,
             float s = fund + keyHarmonic * harm;
             if (kv == KeysVoice::Organ)
                 s = fund + 0.55f * harm + 0.32f * odd + 0.18f * std::sin (juce::MathConstants<float>::twoPi * ph * 4.0f);
+            else if (kv == KeysVoice::Pad)
+                s = fund + 0.28f * harm + 0.08f * odd; // dark string, no hammer
             else if (kv == KeysVoice::Clav)
                 s = fund + 0.42f * odd + 0.18f * std::sin (juce::MathConstants<float>::twoPi * ph * 5.0f);
             else if (kv == KeysVoice::EP)

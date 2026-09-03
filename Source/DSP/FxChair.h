@@ -19,6 +19,8 @@ public:
     bool isEnabled() const noexcept { return enabled.load (std::memory_order_relaxed) != 0; }
     void setVoice (Voice v) noexcept { voice.store ((int) v, std::memory_order_relaxed); }
     Voice getVoice() const noexcept { return (Voice) voice.load (std::memory_order_relaxed); }
+    void setIndustrial (bool e) noexcept { industrial.store (e ? 1 : 0, std::memory_order_relaxed); }
+    bool isIndustrial() const noexcept { return industrial.load (std::memory_order_relaxed) != 0; }
 
     void reloadUser() { if (bank) bank->scanUserFx(); }
 
@@ -53,6 +55,7 @@ private:
     SampleBank* bank = nullptr;
     std::atomic<int> enabled { 0 };
     std::atomic<int> voice { (int) Voice::Auto };
+    std::atomic<int> industrial { 0 };
     double sampleRate = 44100.0;
 
     std::array<Gen, 4> gens {};

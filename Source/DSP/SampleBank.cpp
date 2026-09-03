@@ -31,7 +31,8 @@ const char* SampleBank::slotFile (int slot)
         "fx/hit.wav",
         "fx/clap.wav",
         "fx/foley_wood.wav",
-        "fx/foley_glass.wav"
+        "fx/foley_glass.wav",
+        "keys/strings.wav"
     };
     if (slot < 0 || slot >= NumBundled) return "";
     return n[slot];

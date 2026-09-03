@@ -52,6 +52,7 @@ private:
     void wireControls();
     void refreshTransport();
     void applyToProcessor();
+    void suggestInsanePalette (bool force);
     void markDirty();
     void drawMeter (juce::Graphics& g, juce::Rectangle<int> r, float peak, juce::Colour c) const;
     void drawTuner (juce::Graphics& g, juce::Rectangle<int> r) const;
