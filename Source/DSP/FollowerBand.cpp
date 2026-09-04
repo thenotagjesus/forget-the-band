@@ -35,13 +35,13 @@ namespace
         FollowerBand::DegbIII, FollowerBand::DegbVII, FollowerBand::DegI, FollowerBand::DegI
     };
 
-    // Keep Groove floors ~0.22 (rest/light). Layers:
+    // Keep Groove floors ~0.35 (light pocket). Layers:
     // 0 rest sparse, 1 pocket backbeat, 2 push 8ths, 3 fire busy.
     inline int densityLayer (float inten) noexcept
     {
-        return inten < 0.28f ? 0
-             : inten < 0.55f ? 1
-             : inten < 0.78f ? 2
+        return inten < 0.18f ? 0
+             : inten < 0.50f ? 1
+             : inten < 0.75f ? 2
              : 3;
     }
 }
@@ -630,8 +630,8 @@ void FollowerBand::setPlayerActivity (float onsetRate, bool playerLive) noexcept
 void FollowerBand::noteGuitarOnset (float strength) noexcept
 {
     strength = juce::jlimit (0.0f, 1.0f, strength);
-    // Onset = downbeat candidate: main interaction, not a rare garnish.
-    if (strength < 0.28f)
+    // Soft DI / Bass VI strums often land low after smoothing — accept modest strength.
+    if (strength < 0.10f)
         return;
     const int s = stepAtom.load (std::memory_order_relaxed);
     const int intoBeat = s % 4;
@@ -726,7 +726,7 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
     const auto fl = getFeel();
     const bool swingFeel = (fl == Feel::Swing) || (st == Style::Blues);
 
-    // Onset = downbeat candidate: snaps density feel and reinforces kick.
+    // Onset = downbeat candidate: always fires (even layer 0) + obvious reaction.
     {
         const int pk = pendingOnsetKick.load (std::memory_order_relaxed);
         if (drumsLive && pk != 0)
@@ -735,6 +735,9 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
             if (fireNow)
             {
                 drumEngine.trigKick (juce::jlimit (0.55f, 1.0f, velK * (0.85f + 0.15f * pendingOnsetStr)));
+                // Light snare ghost + closed hat so the wake is obvious, not kick-only.
+                drumEngine.trigSnare (juce::jlimit (0.10f, 0.35f, velG * 1.10f), true);
+                drumEngine.trigHat (velH * 0.42f * hatJ, false);
                 pendingOnsetKick.store (0, std::memory_order_relaxed);
                 pendingOnsetStr *= 0.5f;
             }
@@ -788,7 +791,7 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
         if (layer == 0 || ! playerLive)
         {
             // Rest / Keep Groove floor: sparse kick or light hat — NOT a busy metronome.
-            // Keep Groove lands ~0.22 (layer 0): kick on 1 + whisper hat on 1/3.
+            // Keep Groove lands ~0.35 (layer 1 pocket). Layer 0 rest: kick on 1 + whisper hat.
             if (step16 == 0)
                 drumEngine.trigKick (velK * 0.70f);
             if (step16 == 0 || step16 == 8)

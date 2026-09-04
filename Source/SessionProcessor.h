@@ -156,7 +156,7 @@ private:
     std::atomic<int> waitingNotes { 0 };
     std::atomic<int> grooveFloor { 1 };
     std::atomic<int> fadeSilence { 0 };
-    std::atomic<float> bandEnergy { 0.22f };
+    std::atomic<float> bandEnergy { 0.35f };
 
     double sampleRate = 44100.0;
     int maxBlock = 512;
@@ -185,5 +185,5 @@ private:
 
     double quietSamples = 0.0;
     bool playerLive = false;
-    float bandEnergyDefault = 0.22f;
+    float bandEnergyDefault = 0.35f;
 };

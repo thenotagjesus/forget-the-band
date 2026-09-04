@@ -70,8 +70,11 @@ void InputAnalyzer::prepare (double sr)
     samplesSinceOnset = 1.0e9;
     lastNoteOnSec = -1.0;
     rmsSmooth = activitySmooth = 0.0f;
+    rmsFloorTrack = 0.0f;
     intensitySmooth = 0.35f;
     hopsElapsed = 0.0;
+    samplesSinceStrumFlag = 1.0e9;
+    softEngageHops = 0;
     hopCounter = 0;
     pendingKey = keyPc.load();
     keyStableHops = bpmStableHops = 0;
@@ -601,10 +604,25 @@ void InputAnalyzer::analyseWindow (const float* x, int n) noexcept
     onsetRateAtom.store (onsetRateSmooth, std::memory_order_relaxed);
     const float busy = juce::jlimit (0.0f, 1.0f, (onsetRateSmooth - 0.5f) / 4.0f);
     const float onsetBusy = juce::jlimit (0.0f, 1.0f, (float) ioiCount.load (std::memory_order_relaxed) / 8.0f);
-    const float loud = juce::jlimit (0.0f, 1.0f, rmsSmooth * 3.2f);
+    const float loud = juce::jlimit (0.0f, 1.0f, rmsSmooth * 6.0f);
     const float act = 0.40f * loud + 0.25f * onsetBusy + 0.35f * busy;
     activitySmooth = activitySmooth * 0.80f + act * 0.20f;
     activity.store (activitySmooth, std::memory_order_relaxed);
+
+    // Strum jump detector (homemade path; aubio path uses applyBandState).
+    rmsFloorTrack = rmsFloorTrack * 0.995f + rmsSmooth * 0.005f;
+    samplesSinceStrumFlag += (double) hop;
+    const float floor = juce::jmax (0.0015f, rmsFloorTrack);
+    const bool strumJump = rmsSmooth > floor * 2.0f
+                           && rmsSmooth > 0.004f
+                           && samplesSinceStrumFlag > sampleRate * 0.10;
+    if (strumJump)
+    {
+        onsetFlag.store (1, std::memory_order_relaxed);
+        samplesSinceStrumFlag = 0.0;
+        if (lockIntensity.load (std::memory_order_relaxed) == 0)
+            intensitySmooth = juce::jmin (1.0f, intensitySmooth + 0.10f);
+    }
 
     float player = juce::jmax (activitySmooth, busy);
     if (calibrated.load (std::memory_order_relaxed) != 0)
@@ -618,17 +636,23 @@ void InputAnalyzer::analyseWindow (const float* x, int n) noexcept
     }
     player = juce::jmax (player, busy);
     playerEnergy.store (player, std::memory_order_relaxed);
-    // pitched OR loud activity (strum / unpitched / noise floor above hiss)
-    if ((rmsSmooth > 0.006f && conf > 0.22f && hz >= kMinHz && hz <= kMaxHz)
-        || (rmsSmooth > 0.012f && activitySmooth > 0.10f))
+    // Soft engage: rms>0.004 for 3 hops OR pitch conf OR activity OR strum jump.
+    if (rmsSmooth > 0.004f)
+        ++softEngageHops;
+    else
+        softEngageHops = 0;
+    if (softEngageHops >= 3
+        || (conf > 0.18f && hz >= kMinHz && hz <= kMaxHz)
+        || activitySmooth > 0.06f
+        || strumJump)
         engaged.store (1, std::memory_order_relaxed);
 
     if (lockIntensity.load (std::memory_order_relaxed) == 0)
     {
         if (player > intensitySmooth)
-            intensitySmooth += (player - intensitySmooth) * 0.008f;
+            intensitySmooth += (player - intensitySmooth) * 0.045f;
         else
-            intensitySmooth += (player - intensitySmooth) * 0.010f;
+            intensitySmooth += (player - intensitySmooth) * 0.012f;
         intensity.store (intensitySmooth, std::memory_order_relaxed);
     }
 
@@ -650,6 +674,7 @@ void InputAnalyzer::analyseWindow (const float* x, int n) noexcept
 void InputAnalyzer::resetEngage() noexcept
 {
     engaged.store (0, std::memory_order_relaxed);
+    softEngageHops = 0;
 }
 
 void InputAnalyzer::copyChroma (float out[12]) const noexcept
@@ -985,7 +1010,7 @@ void InputAnalyzer::applyAubioHop() noexcept
 void InputAnalyzer::applyBandState (bool onset, float rms, bool fromBasicPitch) noexcept
 {
     // Band mapping:
-    // - onset && rms high => onsetFlag (consumeOnset drives fills) + intensity bump
+    // - aubio onset (low RMS gate) OR RMS-jump strum => onsetFlag + intensity bump
     // - Basic Pitch chord change => playerChordRoot/Deg so Arrangement/FollowerBand shift bass/keys
     // - YIN midiNote still drives transcription + solo HUD
     juce::ignoreUnused (fromBasicPitch);
@@ -997,16 +1022,26 @@ void InputAnalyzer::applyBandState (bool onset, float rms, bool fromBasicPitch) 
     const float busy = juce::jlimit (0.0f, 1.0f, (onsetRateSmooth - 0.5f) / 4.0f);
     const float onsetBusy = juce::jlimit (0.0f, 1.0f,
         (float) ioiCount.load (std::memory_order_relaxed) / 8.0f);
-    const float loud = juce::jlimit (0.0f, 1.0f, rmsSmooth * 3.2f);
+    const float loud = juce::jlimit (0.0f, 1.0f, rmsSmooth * 6.0f);
     const float act = 0.40f * loud + 0.25f * onsetBusy + 0.35f * busy;
     activitySmooth = activitySmooth * 0.80f + act * 0.20f;
     activity.store (activitySmooth, std::memory_order_relaxed);
 
-    if (onset && rmsSmooth > 0.012f)
+    // Slow floor + strum jump (~2x) even when aubio is shy (Bass VI / soft DI).
+    rmsFloorTrack = rmsFloorTrack * 0.995f + rmsSmooth * 0.005f;
+    samplesSinceStrumFlag += (double) hop;
+    const float floor = juce::jmax (0.0015f, rmsFloorTrack);
+    const bool strumJump = rmsSmooth > floor * 2.0f
+                           && rmsSmooth > 0.004f
+                           && samplesSinceStrumFlag > sampleRate * 0.10;
+    const bool onsetFire = (onset && rmsSmooth > 0.003f) || strumJump;
+    if (onsetFire)
     {
         onsetFlag.store (1, std::memory_order_relaxed);
+        if (strumJump)
+            samplesSinceStrumFlag = 0.0;
         if (lockIntensity.load (std::memory_order_relaxed) == 0)
-            intensitySmooth = juce::jmin (1.0f, intensitySmooth + 0.020f);
+            intensitySmooth = juce::jmin (1.0f, intensitySmooth + 0.10f);
     }
 
     float player = juce::jmax (activitySmooth, busy);
@@ -1024,17 +1059,21 @@ void InputAnalyzer::applyBandState (bool onset, float rms, bool fromBasicPitch) 
 
     const float conf = confidence.load (std::memory_order_relaxed);
     const float hz = freqHz.load (std::memory_order_relaxed);
-    // Soft engage: rms>0.006 + (conf>0.22 or onset or activity>0.10). No timeout auto-start.
-    if (rmsSmooth > 0.006f
-        && (conf > 0.22f || onset || activitySmooth > 0.10f))
+    // Soft engage: rms>0.004 for 3 hops OR onset OR activity>0.06 OR conf>0.18.
+    if (rmsSmooth > 0.004f)
+        ++softEngageHops;
+    else
+        softEngageHops = 0;
+    if (softEngageHops >= 3 || onset || onsetFire
+        || activitySmooth > 0.06f || conf > 0.18f)
         engaged.store (1, std::memory_order_relaxed);
 
     if (lockIntensity.load (std::memory_order_relaxed) == 0)
     {
         if (player > intensitySmooth)
-            intensitySmooth += (player - intensitySmooth) * 0.008f;
+            intensitySmooth += (player - intensitySmooth) * 0.045f; // attack
         else
-            intensitySmooth += (player - intensitySmooth) * 0.010f;
+            intensitySmooth += (player - intensitySmooth) * 0.012f; // release
         intensity.store (intensitySmooth, std::memory_order_relaxed);
     }
 

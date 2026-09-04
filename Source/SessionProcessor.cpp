@@ -557,9 +557,9 @@ void SessionProcessor::processDuplex (const float* const* inChannels, int numIns
         const bool onset = analyzer.consumeOnset();
         const float rms = analyzer.getRms();
         const float onsetRate = analyzer.getOnsetRate();
-        // ~800 ms quiet (no onset + RMS below floor) → rest, even with Keep Groove.
-        constexpr float kRmsFloor = 0.018f;
-        if (onset || rms >= kRmsFloor)
+        // ~1.2 s quiet (no onset + RMS below floor) → rest, even with Keep Groove.
+        constexpr float kRmsFloor = 0.004f;
+        if (onset || rms >= kRmsFloor || analyzer.getPlayerEnergy() > 0.10f)
         {
             quietSamples = 0.0;
             playerLive = true;
@@ -567,7 +567,7 @@ void SessionProcessor::processDuplex (const float* const* inChannels, int numIns
         else
         {
             quietSamples += (double) n;
-            if (quietSamples >= sampleRate * 0.80)
+            if (quietSamples >= sampleRate * 1.20)
                 playerLive = false;
         }
         band.setPlayerActivity (onsetRate, playerLive);
@@ -579,13 +579,15 @@ void SessionProcessor::processDuplex (const float* const* inChannels, int numIns
         if (! playerLive)
             player = (grooveFloor.load (std::memory_order_relaxed) != 0
                       && fadeSilence.load (std::memory_order_relaxed) == 0)
-                         ? 0.22f : 0.05f;
+                         ? 0.35f : 0.05f;
         be += (player - be) * 0.012f; // band lags the player
+        if (onset)
+            be = juce::jmin (1.0f, be + 0.25f); // audible kit wake on strum
         if (grooveFloor.load (std::memory_order_relaxed) != 0
             && fadeSilence.load (std::memory_order_relaxed) == 0
             && waitingNotes.load() == 0
             && countingIn.load() == 0)
-            be = juce::jmax (0.22f, be); // Keep Groove = light rest floor, not pocket metronome
+            be = juce::jmax (0.35f, be); // Keep Groove = light pocket edge (kick+snare)
         bandEnergy.store (be, std::memory_order_relaxed);
 
         if (onset)

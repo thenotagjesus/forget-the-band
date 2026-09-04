@@ -190,9 +190,12 @@ private:
     float onsetRateSmooth = 0.0f;
 
     float rmsSmooth = 0.0f;
+    float rmsFloorTrack = 0.0f;       // slow RMS floor for strum jump detect
     float activitySmooth = 0.0f;
     float intensitySmooth = 0.35f;
     double hopsElapsed = 0.0;
+    double samplesSinceStrumFlag = 1.0e9; // min-gap for RMS-jump onset
+    int softEngageHops = 0;           // consecutive hops with rms > soft floor
 
     int heldNote = -1;
     int hangHops = 0;

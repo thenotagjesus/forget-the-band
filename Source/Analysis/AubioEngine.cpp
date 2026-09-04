@@ -41,8 +41,8 @@ bool AubioEngine::prepare (double sampleRate, int hopSize, int winSize)
         return false;
     }
 
-    aubio_onset_set_threshold (onset.get(), 0.35f);
-    aubio_onset_set_minioi_ms (onset.get(), 160.0f);
+    aubio_onset_set_threshold (onset.get(), 0.22f);
+    aubio_onset_set_minioi_ms (onset.get(), 120.0f);
 
     aubio_pitch_set_unit (pitch.get(), "Hz");
     aubio_pitch_set_silence (pitch.get(), -50.0f);
