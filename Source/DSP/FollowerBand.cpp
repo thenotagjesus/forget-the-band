@@ -743,8 +743,7 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
 
     const bool playerLive = playerLiveAtom.load (std::memory_order_relaxed) != 0;
     const float onsetRate = playerOnsetRate.load (std::memory_order_relaxed);
-    // Fast onset rate → busy hats; slow → half-time (kick on 1, snare on 3).
-    const bool halfTime = playerLive && onsetRate < 1.15f && layer <= 2;
+    // Fast onset rate → busy hats. Never thin to half-time pulse without updating BPM.
     const bool hatsBusy = playerLive && onsetRate > 2.8f;
     // Style colours only when pocket+ AND player is actually playing.
     const bool styleColour = layer >= 1 && playerLive;
@@ -794,18 +793,6 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
                 drumEngine.trigKick (velK * 0.70f);
             if (step16 == 0 || step16 == 8)
                 drumEngine.trigHat (velH * 0.32f, false);
-        }
-        else if (halfTime && layer <= 2)
-        {
-            // Slow onset rate → half-time feel: kick on 1, snare on 3, light hat.
-            if (step16 == 0)
-                drumEngine.trigKick (velK);
-            if (step16 == 8)
-                drumEngine.trigSnare (velS);
-            if (step16 == 0 || step16 == 8)
-                drumEngine.trigHat (velH * 0.55f * hatJ, false);
-            if (layer >= 2 && step16 == 4)
-                drumEngine.trigHat (velH * 0.40f * hatJ, false);
         }
         else if (layer == 1)
         {

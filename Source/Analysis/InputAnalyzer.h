@@ -77,6 +77,8 @@ public:
     void setKeySeed (int pc) noexcept;
     void setBpmSeed (float v) noexcept;
     void nudgeBpm (float delta) noexcept;
+    /** Re-apply slider/seed prior into bpm atom (prepare / start / lock). */
+    void resyncBpmFromSeed() noexcept;
 
     int   getPlayerChordDegree() const noexcept { return playerChordDeg.load (std::memory_order_relaxed); }
     int   getPlayerChordRoot()   const noexcept { return playerChordRoot.load (std::memory_order_relaxed); }
@@ -180,6 +182,7 @@ private:
     std::atomic<int> ioiCount { 0 };
     std::atomic<int> ioiWrite { 0 };
     float bpmSmoothed = 96.0f;
+    float bpmSeedPrior = 96.0f; // slider/seed prior for Auto IOI fold
     int bpmStableHops = 0;
     int ioiConsensusN = 0;
     int tempoDisagreeN = 0;

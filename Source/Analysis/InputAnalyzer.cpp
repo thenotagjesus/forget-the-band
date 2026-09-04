@@ -102,6 +102,9 @@ void InputAnalyzer::prepare (double sr)
     samplesSinceOnset = 1.0e9;
     pitchWorker.prepare (sampleRate);
 
+    // Drop leftover Auto BPM (e.g. 140) so readout matches slider seed on prepare.
+    resyncBpmFromSeed();
+
     startThread (juce::Thread::Priority::low);
 }
 
@@ -130,6 +133,7 @@ void InputAnalyzer::setManualBpm (float v) noexcept
     autoBpm.store (0, std::memory_order_relaxed);
     lockTempo.store (1, std::memory_order_relaxed);
     bpmLocked.store (1, std::memory_order_relaxed);
+    bpmSeedPrior = v;
     bpm.store (v, std::memory_order_relaxed);
     bpmSmoothed = v;
     bpmStableHops = 0;
@@ -164,11 +168,19 @@ void InputAnalyzer::setKeySeed (int pc) noexcept
 void InputAnalyzer::setBpmSeed (float v) noexcept
 {
     v = juce::jlimit (60.0f, 180.0f, v);
+    bpmSeedPrior = v;
     bpm.store (v, std::memory_order_relaxed);
     bpmSmoothed = v;
     ioiConsensusN = 0;
     tempoDisagreeN = 0;
     ioiFresh.store (0, std::memory_order_relaxed);
+}
+
+void InputAnalyzer::resyncBpmFromSeed() noexcept
+{
+    const float v = juce::jlimit (60.0f, 180.0f, bpmSeedPrior);
+    bpm.store (v, std::memory_order_relaxed);
+    bpmSmoothed = v;
 }
 
 void InputAnalyzer::nudgeBpm (float delta) noexcept
@@ -483,20 +495,14 @@ void InputAnalyzer::updateTempoFromIoi() noexcept
         tmp[(size_t) i] = ioiSec[(size_t) i].load (std::memory_order_relaxed);
     std::sort (tmp.begin(), tmp.begin() + used);
     const float median = tmp[(size_t) (used / 2)];
-    // Prefer quarter-note IOI. Fold double/half so 16th-rate does not stick.
+    // Prefer quarter-note IOI. Fold aggressively toward slider/seed prior so
+    // 8th-note Bass VI picking does not stick at double BPM (e.g. 140 vs 80).
     float est = 60.0f / juce::jmax (0.22f, median);
-    const float cur = juce::jmax (60.0f, bpmSmoothed);
-    for (int k = 0; k < 4; ++k)
-    {
-        if (est > cur * 1.42f && est < cur * 2.65f)
-            est *= 0.5f;
-        else if (est < cur * 0.72f && est > cur * 0.36f)
-            est *= 2.0f;
-        else
-            break;
-    }
-    while (est > 140.0f) est *= 0.5f;
-    while (est <  60.0f) est *= 2.0f;
+    const float seed = juce::jlimit (60.0f, 140.0f, bpmSeedPrior);
+    while (est > seed * 1.35f)
+        est *= 0.5f;
+    while (est < seed * 0.65f)
+        est *= 2.0f;
     est = juce::jlimit (60.0f, 140.0f, est);
 
     const float err = est - bpmSmoothed;

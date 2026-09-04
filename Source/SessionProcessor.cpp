@@ -231,6 +231,8 @@ void SessionProcessor::startSession()
     band.reset();
     fxChair.reset();
     analyzer.resetEngage();
+    // Clear leftover Auto BPM atom so LOCKED readout matches slider seed.
+    analyzer.resyncBpmFromSeed();
     band.setEnabled (false);
     countingIn.store (0, std::memory_order_relaxed);
     goBand.store (0, std::memory_order_relaxed);

@@ -510,6 +510,11 @@ void SessionUI::wireControls()
 
     startBtn.onClick = [this]
     {
+        // Seed prior = slider; startSession also resyncs atom from that prior.
+        if (lockTempo.getToggleState() || ! autoBpm.getToggleState())
+            proc.getAnalyzer().setManualBpm ((float) bpmSlider.getValue());
+        else
+            proc.getAnalyzer().setBpmSeed ((float) bpmSlider.getValue());
         proc.startSession();
         refreshTransport();
     };
@@ -1435,7 +1440,9 @@ void SessionUI::timerCallback()
                                                              : juce::Colour (SessionLookAndFeel::kText)));
 
     juce::String bpmText = "BPM  ";
-    bpmText << juce::String (an.getBpm(), 0);
+    // When Lock Tempo, show slider seed only — never a stale high Auto atom.
+    const float shownBpm = an.isLockTempo() ? (float) bpmSlider.getValue() : an.getBpm();
+    bpmText << juce::String (shownBpm, 0);
     if (an.isLockTempo())
         bpmText << "  LOCKED";
     else if (an.isAutoBpm())
