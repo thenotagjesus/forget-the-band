@@ -96,8 +96,7 @@ void PluginHost::maybeForceCleanRescan()
     deadMansPedalFile().deleteFile();
     clearStarterSeeded();
     settingsFile().getSiblingFile ("plugin-slots.xml").deleteFile();
-    marker.replaceWithText ("1
-");
+    marker.replaceWithText ("1\n");
 }
 
 bool PluginHost::shouldAutoScan() const
