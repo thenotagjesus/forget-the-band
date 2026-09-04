@@ -1682,30 +1682,22 @@ void SessionUI::fillPluginCombo (juce::ComboBox& box, PluginRack& rack, int slot
     int sel = 1;
     int id = 2;
     const auto types = host.knownList.getTypes();
-    juce::StringArray nameCounts;
-    for (const auto& d : types)
-        nameCounts.add (d.name);
     for (const auto& d : types)
     {
-        juce::String label = d.name;
-        const int dupes = nameCounts.indexOf (d.name) != nameCounts.lastIndexOf (d.name) ? 1 : 0;
-        // Count occurrences
         int count = 0;
-        for (const auto& n : nameCounts)
-            if (n == d.name) ++count;
+        for (const auto& o : types)
+            if (o.name == d.name)
+                ++count;
+        juce::String label = d.name;
         if (count > 1)
         {
             const auto hint = PluginHost::pathFolderHint (d.fileOrIdentifier);
-            if (hint.isNotEmpty())
-                label += "  [" + hint + "]";
-            else
-                label += "  [" + d.pluginFormatName + "]";
+            label += "  [" + (hint.isNotEmpty() ? hint : d.pluginFormatName) + "]";
         }
         else
         {
             label += "  [" + d.pluginFormatName + "]";
         }
-        juce::ignoreUnused (dupes);
         box.addItem (label, id);
         if (d.createIdentifierString() == current)
             sel = id;
