@@ -35,13 +35,13 @@ namespace
         FollowerBand::DegbIII, FollowerBand::DegbVII, FollowerBand::DegI, FollowerBand::DegI
     };
 
-    // Keep Groove floors at 0.50 (pocket). Layer 0 is true silence / fade only.
-    // Player energy ADDS density; it never subtracts the backbeat.
+    // Keep Groove floors ~0.22 (rest/light). Layers:
+    // 0 rest sparse, 1 pocket backbeat, 2 push 8ths, 3 fire busy.
     inline int densityLayer (float inten) noexcept
     {
-        return inten < 0.20f ? 0
-             : inten < 0.62f ? 1
-             : inten < 0.85f ? 2
+        return inten < 0.28f ? 0
+             : inten < 0.55f ? 1
+             : inten < 0.78f ? 2
              : 3;
     }
 }
@@ -208,6 +208,11 @@ void FollowerBand::reset() noexcept
     fillVariant = 0;
     pendingOnsetKick.store (0, std::memory_order_relaxed);
     pendingOnsetStr = 0.0f;
+    playerOnsetRate.store (0.0f, std::memory_order_relaxed);
+    playerLiveAtom.store (0, std::memory_order_relaxed);
+    phrasePeakInten = 0.0f;
+    phraseSpiked = false;
+    phrasePeakBar = -1;
     followDeg.store (-1, std::memory_order_relaxed);
     thinMask.store (0x1, std::memory_order_relaxed);
     step = 0;
@@ -616,21 +621,27 @@ int FollowerBand::pickBass (Style st, int step16, float inten, int deg, int upco
     return -1;
 }
 
+void FollowerBand::setPlayerActivity (float onsetRate, bool playerLive) noexcept
+{
+    playerOnsetRate.store (juce::jlimit (0.0f, 8.0f, onsetRate), std::memory_order_relaxed);
+    playerLiveAtom.store (playerLive ? 1 : 0, std::memory_order_relaxed);
+}
+
 void FollowerBand::noteGuitarOnset (float strength) noexcept
 {
     strength = juce::jlimit (0.0f, 1.0f, strength);
-    // Strong onsets only — analyzer gates already; keep a soft floor so quiet strums don't fire.
-    if (strength < 0.42f)
+    // Onset = downbeat candidate: main interaction, not a rare garnish.
+    if (strength < 0.28f)
         return;
-    // Near a beat (within first 2 16ths of the quarter) reinforce this beat's kick;
-    // otherwise schedule next downbeat.
     const int s = stepAtom.load (std::memory_order_relaxed);
     const int intoBeat = s % 4;
+    // Near a beat → reinforce this beat's kick; else snap to next downbeat.
     if (intoBeat <= 1)
         pendingOnsetKick.store (1, std::memory_order_relaxed);
     else
         pendingOnsetKick.store (2, std::memory_order_relaxed);
-    pendingOnsetStr = juce::jmax (pendingOnsetStr * 0.5f, strength);
+    pendingOnsetStr = juce::jmax (pendingOnsetStr * 0.35f, strength);
+    playerLiveAtom.store (1, std::memory_order_relaxed);
 }
 
 void FollowerBand::decideFill (Style /*st*/, float inten) noexcept
@@ -638,29 +649,40 @@ void FollowerBand::decideFill (Style /*st*/, float inten) noexcept
     const int layer = densityLayer (inten);
     const int ph = juce::jmax (4, phraseBars.load (std::memory_order_relaxed));
     const bool phraseEnd = ((absBar + 1) % ph) == 0;
-    // Previous bar was a fill → crash this bar's downbeat (covers 4-bar fire fills too).
+    const int phraseIdx = absBar / ph;
+    if (phraseIdx != phrasePeakBar)
+    {
+        phrasePeakBar = phraseIdx;
+        phrasePeakInten = inten;
+        phraseSpiked = false;
+    }
+    else
+    {
+        if (inten > phrasePeakInten + 0.12f && inten >= 0.62f)
+            phraseSpiked = true;
+        phrasePeakInten = juce::jmax (phrasePeakInten, inten);
+    }
+
     const bool afterFill = fillThisBar;
-    // Rest never fills. Pocket: 8-bar / phrase-end. Fire: also every 4 bars.
-    fillThisBar = layer >= 1 && ((absBar % 8 == 7) || phraseEnd
-                                 || (layer >= 3 && (absBar % 4 == 3)));
+    // Fill ONLY when intensity spiked this phrase — not every 8 bars on autopilot.
+    const bool live = playerLiveAtom.load (std::memory_order_relaxed) != 0;
+    fillThisBar = live && phraseSpiked && phraseEnd && layer >= 2;
     if (afterFill)
-        pendingCrash = layer >= 1;
+        pendingCrash = layer >= 1 && live;
     else if (fillThisBar)
-        pendingCrash = false; // fill bar itself — crash comes next bar
-    else if (((absBar % 8) == 0 && absBar > 0) || (absBar > 0 && (absBar % ph) == 0))
-        pendingCrash = layer >= 1;
+        pendingCrash = false;
     else
         pendingCrash = false;
-    // Seeded fill variant from intensity + bar — never empty.
     if (fillThisBar)
     {
+        phraseSpiked = false; // consume spike
         const uint32_t seed = (uint32_t) absBar * 2654435761u ^ (uint32_t) (inten * 1000.0f);
         if (layer >= 3)
-            fillVariant = (int) (seed % 3);       // tom / snare build / crash+toms
+            fillVariant = (int) (seed % 3);
         else if (layer >= 2)
-            fillVariant = (int) (seed % 2);       // tom or snare build
+            fillVariant = (int) (seed % 2);
         else
-            fillVariant = 0;                      // short tom run
+            fillVariant = 0;
     }
     fillAtom.store (fillThisBar ? 1 : 0, std::memory_order_relaxed);
 }
@@ -704,7 +726,7 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
     const auto fl = getFeel();
     const bool swingFeel = (fl == Feel::Swing) || (st == Style::Blues);
 
-    // Onset-reactive kick: reinforce without changing BPM.
+    // Onset = downbeat candidate: snaps density feel and reinforces kick.
     {
         const int pk = pendingOnsetKick.load (std::memory_order_relaxed);
         if (drumsLive && pk != 0)
@@ -714,27 +736,21 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
             {
                 drumEngine.trigKick (juce::jlimit (0.55f, 1.0f, velK * (0.85f + 0.15f * pendingOnsetStr)));
                 pendingOnsetKick.store (0, std::memory_order_relaxed);
+                pendingOnsetStr *= 0.5f;
             }
         }
     }
 
-    // Anticipation at fire: seeded snare flam / kick pickup 1 sixteenth before beat.
-    if (drumsLive && layer >= 3 && ! fillThisBar)
-    {
-        const uint32_t seed = (uint32_t) absBar * 747796405u + (uint32_t) step16 * 2891336453u;
-        const bool pick = ((seed >> 8) & 7u) == 0u; // occasional, not every bar
-        if (pick)
-        {
-            if (step16 == 3 || step16 == 11) // 1 sixteenth before backbeat
-                drumEngine.trigSnare (velG * 0.70f, true); // flam ghost
-            if (step16 == 15) // pickup into next downbeat
-                drumEngine.trigKick (velK * 0.55f);
-        }
-    }
+    const bool playerLive = playerLiveAtom.load (std::memory_order_relaxed) != 0;
+    const float onsetRate = playerOnsetRate.load (std::memory_order_relaxed);
+    // Fast onset rate → busy hats; slow → half-time (kick on 1, snare on 3).
+    const bool halfTime = playerLive && onsetRate < 1.15f && layer <= 2;
+    const bool hatsBusy = playerLive && onsetRate > 2.8f;
+    // Style colours only when pocket+ AND player is actually playing.
+    const bool styleColour = layer >= 1 && playerLive;
 
     if (drumsLive && fillThisBar)
     {
-        // Never empty: pocket through bar + fill variant on last 4 16ths.
         if (step16 == 0 || step16 == 8)
             drumEngine.trigKick (velK);
         if (step16 == 4)
@@ -748,7 +764,6 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
         }
         if (fillVariant == 0)
         {
-            // Tom run
             if (step16 == 12) drumEngine.trigTom (0, velK);
             if (step16 == 13) drumEngine.trigTom (1, velK * 0.95f);
             if (step16 == 14) drumEngine.trigTom (2, velK * 0.90f);
@@ -756,7 +771,6 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
         }
         else if (fillVariant == 1)
         {
-            // Snare build
             if (step16 == 12) drumEngine.trigSnare (velG, true);
             if (step16 == 13) drumEngine.trigSnare (velS * 0.70f);
             if (step16 == 14) { drumEngine.trigSnare (velS * 0.85f); drumEngine.trigTom (1, velK * 0.70f); }
@@ -764,7 +778,6 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
         }
         else
         {
-            // Crash accent + toms — still not empty
             if (step16 == 12) { drumEngine.trigTom (0, velK); drumEngine.trigCrash (0.55f); }
             if (step16 == 13) drumEngine.trigTom (1, velK * 0.92f);
             if (step16 == 14) drumEngine.trigTom (2, velK * 0.88f);
@@ -773,17 +786,40 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
     }
     else if (drumsLive)
     {
-        if (layer == 0)
+        if (layer == 0 || ! playerLive)
         {
-            // Rest: kick on 1 + light hat on 1 and 3 only.
+            // Rest / Keep Groove floor: sparse kick or light hat — NOT a busy metronome.
+            // Keep Groove lands ~0.22 (layer 0): kick on 1 + whisper hat on 1/3.
             if (step16 == 0)
-                drumEngine.trigKick (velK * 0.85f);
+                drumEngine.trigKick (velK * 0.70f);
             if (step16 == 0 || step16 == 8)
-                drumEngine.trigHat (velH * 0.45f, false);
+                drumEngine.trigHat (velH * 0.32f, false);
         }
-        else if (st == Style::Metal)
+        else if (halfTime && layer <= 2)
         {
-            // Double-kick on fire: 0,3,6,8,11,14. Tight hats. Snare 4+12 heavy.
+            // Slow onset rate → half-time feel: kick on 1, snare on 3, light hat.
+            if (step16 == 0)
+                drumEngine.trigKick (velK);
+            if (step16 == 8)
+                drumEngine.trigSnare (velS);
+            if (step16 == 0 || step16 == 8)
+                drumEngine.trigHat (velH * 0.55f * hatJ, false);
+            if (layer >= 2 && step16 == 4)
+                drumEngine.trigHat (velH * 0.40f * hatJ, false);
+        }
+        else if (layer == 1)
+        {
+            // Pocket without recent busy playing: ONLY backbeat + light hat.
+            // Density layers drive whether 8ths/16ths exist — not a canned 16th grid.
+            if (step16 == 0 || step16 == 8)
+                drumEngine.trigKick (velK);
+            if (step16 == 4 || step16 == 12)
+                drumEngine.trigSnare (velS);
+            if (step16 == 0 || step16 == 8)
+                drumEngine.trigHat (velH * 0.50f * hatJ, false);
+        }
+        else if (styleColour && st == Style::Metal)
+        {
             if (layer >= 3)
             {
                 if (step16 == 0 || step16 == 3 || step16 == 6 || step16 == 8
@@ -800,53 +836,49 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
             if (step16 == 4 || step16 == 12)
                 drumEngine.trigSnare (velS * 1.05f);
             if (even8)
-                drumEngine.trigHat (velH * 0.85f * hatJ, false); // tight
-            if (layer >= 3 && ! even8)
+                drumEngine.trigHat (velH * 0.85f * hatJ, false);
+            if ((layer >= 3 || hatsBusy) && ! even8)
                 drumEngine.trigHat (velH * 0.55f * hatJ, false);
             if (layer >= 2 && step16 == 14)
                 drumEngine.trigHat (velO * 0.70f * hatJ, true);
         }
-        else if (st == Style::Jazz)
+        else if (styleColour && st == Style::Jazz)
         {
-            // Ride on beats+ands (skip closed hats). Snare comps 2+/4+. Kick feather 1 and & of 2.
             if (step16 == 0)
-                drumEngine.trigKick (velK * 0.55f); // feather
+                drumEngine.trigKick (velK * 0.55f);
             if (step16 == 6)
-                drumEngine.trigKick (velK * 0.40f); // & of 2
+                drumEngine.trigKick (velK * 0.40f);
             if (step16 == 0 || step16 == 2 || step16 == 4 || step16 == 6
                 || step16 == 8 || step16 == 10 || step16 == 12 || step16 == 14)
                 drumEngine.trigRide (velR * (beat ? 1.0f : 0.72f));
-            if (step16 == 5 || step16 == 13) // 2+ / 4+
+            if (step16 == 5 || step16 == 13)
                 drumEngine.trigSnare (velG * 1.15f, true);
             if (layer >= 2 && (step16 == 4 || step16 == 12))
-                drumEngine.trigSnare (velS * 0.55f); // light comps
+                drumEngine.trigSnare (velS * 0.55f);
             if (layer >= 3 && (step16 == 7 || step16 == 15))
                 drumEngine.trigSnare (velG, true);
         }
-        else if (st == Style::Funk)
+        else if (styleColour && st == Style::Funk)
         {
-            // Ghosts 1e+a / 3e+a at pocket+. Kick syncopation 0+6+10. Open hat 14.
             if (step16 == 0 || (layer >= 2 && (step16 == 6 || step16 == 10)))
                 drumEngine.trigKick (velK * (step16 == 0 ? 1.0f : 0.80f));
             if (step16 == 4 || step16 == 12)
                 drumEngine.trigSnare (velS);
             if (layer >= 2)
             {
-                // 1e+a = 1,2,3 and 3e+a = 9,10,11 (within 16ths of beats 1 and 3)
                 if (step16 == 1 || step16 == 2 || step16 == 3
                     || step16 == 9 || step16 == 10 || step16 == 11)
                     drumEngine.trigSnare (velG, true);
             }
             if (even8)
                 drumEngine.trigHat (velH * hatJ, false);
-            if (layer >= 2 && step16 == 14)
+            if ((layer >= 2 || hatsBusy) && step16 == 14)
                 drumEngine.trigHat (velO * hatJ, true);
             if (layer >= 3 && step16 == 7)
                 drumEngine.trigSnare (velG * 0.85f, true);
         }
-        else if (st == Style::Blues || swingFeel)
+        else if (styleColour && (st == Style::Blues || swingFeel))
         {
-            // Shuffle: kick 0+6, snare 4+12. Hats on swing 8ths (even steps; off-8ths swung by clock).
             if (step16 == 0 || step16 == 6)
                 drumEngine.trigKick (velK * (step16 == 0 ? 1.0f : 0.82f));
             if (step16 == 4 || step16 == 12)
@@ -860,9 +892,9 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
             if (layer >= 2 && step16 == 14)
                 drumEngine.trigHat (velO * hatJ, true);
         }
-        else
+        else if (styleColour)
         {
-            // Rock: solid backbeat, hats 8ths, open on 14 at push+.
+            // Rock push/fire: 8ths (and 16ths when busy) driven by density + onset rate.
             if (step16 == 0 || step16 == 8)
                 drumEngine.trigKick (velK);
             if (step16 == 4 || step16 == 12)
@@ -875,13 +907,23 @@ void FollowerBand::triggerStep (int step16, Style st, float inten, int deg, int 
                 drumEngine.trigSnare (velG * 0.85f, true);
             if (even8)
                 drumEngine.trigHat (velH * hatJ, false);
-            if (layer >= 3 && ! even8)
+            if ((layer >= 3 || hatsBusy) && ! even8)
                 drumEngine.trigHat (velH * 0.65f * hatJ, false);
             if (layer >= 2 && step16 == 14)
                 drumEngine.trigHat (velO * hatJ, true);
         }
+        else
+        {
+            // Player quiet but energy still pocket: backbeat only.
+            if (step16 == 0 || step16 == 8)
+                drumEngine.trigKick (velK * 0.90f);
+            if (step16 == 4 || step16 == 12)
+                drumEngine.trigSnare (velS * 0.90f);
+            if (step16 == 0 || step16 == 8)
+                drumEngine.trigHat (velH * 0.45f * hatJ, false);
+        }
 
-        if (layer >= 3 && step16 == 0 && (absBar % 8) == 0)
+        if (layer >= 3 && playerLive && step16 == 0 && (absBar % 8) == 0)
             drumEngine.trigCrash (0.70f);
     }
 

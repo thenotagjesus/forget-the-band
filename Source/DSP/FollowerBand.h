@@ -91,6 +91,8 @@ public:
     void applyPhaseNudge (double deltaSamples) noexcept;
     /** Audio thread: strong guitar onset near a beat may reinforce kick. */
     void noteGuitarOnset (float strength) noexcept;
+    /** Audio thread: player activity for drums-only follower feel (onset rate + live/rest). */
+    void setPlayerActivity (float onsetRate, bool playerLive) noexcept;
     double getStepAccum() const noexcept { return stepAccum; }
     double getSamplesPer16th() const noexcept { return samplesPer16th; }
 
@@ -241,6 +243,11 @@ private:
     int  fillVariant = 0; // 0 tom run, 1 snare build, 2 crash accent
     std::atomic<int> pendingOnsetKick { 0 }; // 0 idle, 1 this beat, 2 next downbeat
     float pendingOnsetStr = 0.0f;
+    std::atomic<float> playerOnsetRate { 0.0f };
+    std::atomic<int> playerLiveAtom { 0 };
+    float phrasePeakInten = 0.0f;
+    bool phraseSpiked = false;
+    int phrasePeakBar = -1;
 
     float bassPhase = 0, bassEnv = 0, bassHz = 82.41f;
     float subPhase = 0;

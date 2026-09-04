@@ -699,16 +699,28 @@ void SessionUI::wireControls()
                     return;
 
                 auto& rack = proc.getGuitarRack();
-                int slot = 0;
-                for (int i = 0; i < PluginRack::NumSlots; ++i)
+                int slot = PluginRack::PreAmp;
+                if (PluginRack::isAmpClassName (firstNew.name)
+                    && rack.getSlotPluginName (PluginRack::AmpReplace).isEmpty())
+                    slot = PluginRack::AmpReplace;
+                else if (PluginRack::isCabClassName (firstNew.name)
+                         && rack.getSlotPluginName (PluginRack::Post).isEmpty())
+                    slot = PluginRack::Post;
+                else if (PluginRack::isDriveClassName (firstNew.name)
+                         && rack.getSlotPluginName (PluginRack::PreAmp).isEmpty())
+                    slot = PluginRack::PreAmp;
+                else
                 {
-                    if (rack.getSlotPluginName (i).isEmpty())
+                    for (int i = 0; i < PluginRack::NumSlots; ++i)
                     {
-                        slot = i;
-                        break;
+                        if (rack.getSlotPluginName (i).isEmpty())
+                        {
+                            slot = i;
+                            break;
+                        }
                     }
                 }
-                const auto err = rack.loadPlugin (slot, firstNew);
+                const auto err = rack.loadPlugin (slot, firstNew, juce::MemoryBlock{}, true);
                 if (err.isNotEmpty())
                     juce::NativeMessageBox::showMessageBoxAsync (
                         juce::MessageBoxIconType::WarningIcon, "VST3", err);
@@ -1503,6 +1515,28 @@ void SessionUI::timerCallback()
         }
     }
 
+    // Amp path status: SAWVI vs VST amp; Insane UI reflects bypassed built-in.
+    if (proc.isVstAmpActive())
+    {
+        const auto ampName = proc.getGuitarRack().getSlotPluginName (PluginRack::AmpReplace);
+        guitarVstLbl.setText ("VST amp: " + (ampName.isNotEmpty() ? ampName : juce::String ("loaded")),
+                              juce::dontSendNotification);
+        insaneBtn.setTooltip ("Built-in SAWVI bypassed — VST amp in AmpReplace");
+        // Keep toggle state but show muted colour so user sees Insane is not the live amp.
+        insaneBtn.setColour (juce::TextButton::buttonOnColourId, juce::Colour (SessionLookAndFeel::kMuted));
+    }
+    else
+    {
+        if (proc.getAmp().isInsane() && ! proc.isAmpBypass())
+            guitarVstLbl.setText ("SAWVI amp", juce::dontSendNotification);
+        else if (proc.isAmpBypass())
+            guitarVstLbl.setText ("Amp bypassed", juce::dontSendNotification);
+        else
+            guitarVstLbl.setText ("Guitar inserts", juce::dontSendNotification);
+        insaneBtn.setTooltip ("Tight high-gain on guitar input; off = mild amp");
+        insaneBtn.setColour (juce::TextButton::buttonOnColourId, juce::Colour (SessionLookAndFeel::kAccent));
+    }
+
     guitarStrip.setPeak (proc.getBusPeak (SessionProcessor::Guitar));
     drumsStrip.setPeak  (proc.getBusPeak (SessionProcessor::Drums));
     bassStrip.setPeak   (proc.getBusPeak (SessionProcessor::Bass));
@@ -1712,7 +1746,7 @@ void SessionUI::bindPluginSlot (juce::ComboBox& box, juce::TextButton& byp, juce
     box.onChange = [this, &box, rackFn, visualIndex]
     {
         auto& rack = rackFn();
-        const int slot = rack.orderAt (visualIndex);
+        int slot = rack.orderAt (visualIndex);
         const int id = box.getSelectedId();
         if (id <= 1)
         {
@@ -1723,9 +1757,20 @@ void SessionUI::bindPluginSlot (juce::ComboBox& box, juce::TextButton& byp, juce
         const int idx = id - 2;
         if (idx < 0 || idx >= types.size())
             return;
-        const auto err = rack.loadPlugin (slot, types.getReference (idx));
+        const auto& desc = types.getReference (idx);
+        // Amp-class into any insert: prefer AmpReplace when empty so AmpCab is skipped.
+        if (&rack == &proc.getGuitarRack()
+            && PluginRack::isAmpClassName (desc.name)
+            && slot != PluginRack::AmpReplace
+            && rack.getSlotPluginName (PluginRack::AmpReplace).isEmpty())
+        {
+            slot = PluginRack::AmpReplace;
+        }
+        const auto err = rack.loadPlugin (slot, desc, juce::MemoryBlock{}, true);
         if (err.isNotEmpty())
             juce::NativeMessageBox::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "VST3", err);
+        else
+            juce::MessageManager::callAsync ([this] { refreshPluginCombos(); });
     };
     byp.onClick = [rackFn, visualIndex, &byp]
     {
@@ -1748,8 +1793,16 @@ void SessionUI::refreshPluginCombos()
     {
         const int gid = gRack.orderAt (i);
         const int tid = tRack.orderAt (i);
-        gSlotLbl[(size_t) i].setText (juce::String (i + 1) + "  " + PluginRack::slotName (gid),
-                                      juce::dontSendNotification);
+        {
+            juce::String gl = juce::String (i + 1) + "  " + PluginRack::slotName (gid);
+            if (gid == PluginRack::AmpReplace)
+                gl = juce::String (i + 1) + "  Amp";
+            else if (gid == PluginRack::PreAmp)
+                gl = juce::String (i + 1) + "  Pre";
+            else if (gid == PluginRack::Post)
+                gl = juce::String (i + 1) + "  Post";
+            gSlotLbl[(size_t) i].setText (gl, juce::dontSendNotification);
+        }
         tSlotLbl[(size_t) i].setText (juce::String (i + 1) + "  " + PluginRack::slotName (tid),
                                       juce::dontSendNotification);
         fillPluginCombo (gSlot[(size_t) i], gRack, gid);

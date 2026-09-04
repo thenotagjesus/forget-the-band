@@ -114,9 +114,11 @@ public:
 
     static const char* busName (int bus);
 
-    /** Load NAM/VoLum then ChowCentaur into empty insert slots (never AmpReplace).
+    /** Load amp into AmpReplace, drive into PreAmp, cab IR into Post.
         No-op if any guitar slot already has a plugin. Returns how many loaded. */
     int seedStarterGuitarVsts();
+    /** If AmpReplace empty and an insert holds an amp-class VST, move it to AmpReplace. */
+    void migrateAmpSlotIfNeeded();
 
 private:
     bool guitarRackHasAnyPlugin() const;
@@ -154,7 +156,7 @@ private:
     std::atomic<int> waitingNotes { 0 };
     std::atomic<int> grooveFloor { 1 };
     std::atomic<int> fadeSilence { 0 };
-    std::atomic<float> bandEnergy { 0.50f };
+    std::atomic<float> bandEnergy { 0.22f };
 
     double sampleRate = 44100.0;
     int maxBlock = 512;
@@ -180,4 +182,8 @@ private:
     float clickEnv = 0.0f;
     float clickPhase = 0.0f;
     float clickHz = 1000.0f;
+
+    double quietSamples = 0.0;
+    bool playerLive = false;
+    float bandEnergyDefault = 0.22f;
 };

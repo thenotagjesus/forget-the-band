@@ -592,6 +592,7 @@ void InputAnalyzer::analyseWindow (const float* x, int n) noexcept
     updateTempo (rmsSmooth, n);
 
     onsetRateSmooth *= 0.985f;
+    onsetRateAtom.store (onsetRateSmooth, std::memory_order_relaxed);
     const float busy = juce::jlimit (0.0f, 1.0f, (onsetRateSmooth - 0.5f) / 4.0f);
     const float onsetBusy = juce::jlimit (0.0f, 1.0f, (float) ioiCount.load (std::memory_order_relaxed) / 8.0f);
     const float loud = juce::jlimit (0.0f, 1.0f, rmsSmooth * 3.2f);
@@ -986,6 +987,7 @@ void InputAnalyzer::applyBandState (bool onset, float rms, bool fromBasicPitch) 
     onsetRateSmooth *= 0.985f;
     if (onset)
         onsetRateSmooth = juce::jmin (8.0f, onsetRateSmooth + 1.0f);
+    onsetRateAtom.store (onsetRateSmooth, std::memory_order_relaxed);
     const float busy = juce::jlimit (0.0f, 1.0f, (onsetRateSmooth - 0.5f) / 4.0f);
     const float onsetBusy = juce::jlimit (0.0f, 1.0f,
         (float) ioiCount.load (std::memory_order_relaxed) / 8.0f);

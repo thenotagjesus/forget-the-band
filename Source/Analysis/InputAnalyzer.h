@@ -44,6 +44,7 @@ public:
     float getIntensity()   const noexcept { return intensity.load (std::memory_order_relaxed); }
     float getPlayerEnergy() const noexcept { return playerEnergy.load (std::memory_order_relaxed); }
     float getRms()         const noexcept { return rmsAtom.load (std::memory_order_relaxed); }
+    float getOnsetRate()   const noexcept { return onsetRateAtom.load (std::memory_order_relaxed); }
     bool  isKeyLocked()    const noexcept { return keyLocked.load (std::memory_order_relaxed) != 0; }
     bool  isBpmLocked()    const noexcept { return bpmLocked.load (std::memory_order_relaxed) != 0; }
     bool  isBpmConfident() const noexcept { return bpmConfident.load (std::memory_order_relaxed) != 0; }
@@ -141,6 +142,7 @@ private:
     std::atomic<float> intensity { 0.35f };
     std::atomic<float> playerEnergy { 0.0f };
     std::atomic<float> rmsAtom { 0.0f };
+    std::atomic<float> onsetRateAtom { 0.0f };
     std::atomic<float> fitAtom { 1.0f };
     std::atomic<int>   keyLocked { 0 };
     std::atomic<int>   bpmLocked { 0 };

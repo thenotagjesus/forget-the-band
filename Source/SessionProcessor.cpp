@@ -38,6 +38,7 @@ void SessionProcessor::prepare (double sr, int samplesPerBlock, int)
     guitarRack.prepare (sampleRate, maxBlock);
     daw.prepare (sampleRate, maxBlock);
     guitarRack.restoreSlotState();
+    migrateAmpSlotIfNeeded();
 
     inputGainSmooth.reset (sampleRate, 0.008);
     inputGainSmooth.setCurrentAndTargetValue (1.0f);
@@ -491,7 +492,8 @@ void SessionProcessor::processDuplex (const float* const* inChannels, int numIns
     }
 
     const float gAmt = gateAmt.load (std::memory_order_relaxed);
-    const bool useGate = gAmt > 0.02f;
+    // Instrument-level into NAM/amp VSTs — do not gate to zero before the rack.
+    const bool useGate = gAmt > 0.02f && ! guitarRack.isVstAmpActive();
     if (useGate)
     {
         const float openDb = juce::jmap (gAmt, 0.0f, 1.0f, -72.0f, -28.0f);
@@ -548,22 +550,42 @@ void SessionProcessor::processDuplex (const float* const* inChannels, int numIns
     fx.process (gL.data(), gR.data(), n, analyzer.getBpm());
 
     {
+        float chroma[12] = {};
+        analyzer.copyChroma (chroma);
+        const bool onset = analyzer.consumeOnset();
+        const float rms = analyzer.getRms();
+        const float onsetRate = analyzer.getOnsetRate();
+        // ~800 ms quiet (no onset + RMS below floor) → rest, even with Keep Groove.
+        constexpr float kRmsFloor = 0.018f;
+        if (onset || rms >= kRmsFloor)
+        {
+            quietSamples = 0.0;
+            playerLive = true;
+        }
+        else
+        {
+            quietSamples += (double) n;
+            if (quietSamples >= sampleRate * 0.80)
+                playerLive = false;
+        }
+        band.setPlayerActivity (onsetRate, playerLive);
+
         float player = analyzer.getPlayerEnergy();
         float be = bandEnergy.load (std::memory_order_relaxed);
         if (analyzer.isLockIntensity())
             player = be;
+        if (! playerLive)
+            player = (grooveFloor.load (std::memory_order_relaxed) != 0
+                      && fadeSilence.load (std::memory_order_relaxed) == 0)
+                         ? 0.22f : 0.05f;
         be += (player - be) * 0.012f; // band lags the player
         if (grooveFloor.load (std::memory_order_relaxed) != 0
             && fadeSilence.load (std::memory_order_relaxed) == 0
             && waitingNotes.load() == 0
             && countingIn.load() == 0)
-            be = juce::jmax (0.50f, be); // Keep Groove = pocket (layer 1), not rest
+            be = juce::jmax (0.22f, be); // Keep Groove = light rest floor, not pocket metronome
         bandEnergy.store (be, std::memory_order_relaxed);
-    }
-    {
-        float chroma[12] = {};
-        analyzer.copyChroma (chroma);
-        const bool onset = analyzer.consumeOnset();
+
         if (onset)
         {
             // Prefer live player energy / intensity so onset kicks actually arm.
@@ -702,43 +724,65 @@ bool SessionProcessor::guitarRackHasAnyPlugin() const
     return false;
 }
 
+void SessionProcessor::migrateAmpSlotIfNeeded()
+{
+    if (guitarRack.getSlotPluginName (PluginRack::AmpReplace).isNotEmpty())
+        return;
+    for (int slot : { PluginRack::PreAmp, PluginRack::Post, PluginRack::Slot4 })
+    {
+        const auto name = guitarRack.getSlotPluginName (slot);
+        if (name.isEmpty() || ! PluginRack::isAmpClassName (name))
+            continue;
+        const auto desc = guitarRack.getSlotDescription (slot);
+        guitarRack.unloadPlugin (slot);
+        guitarRack.loadPlugin (PluginRack::AmpReplace, desc);
+        break;
+    }
+}
+
 int SessionProcessor::seedStarterGuitarVsts()
 {
+    migrateAmpSlotIfNeeded();
     if (guitarRackHasAnyPlugin())
         return 0;
 
-    juce::PluginDescription ampDesc, odDesc;
-    const bool haveNam = host.findTypeMatching (
+    juce::PluginDescription ampDesc, odDesc, cabDesc;
+    bool haveAmp = host.findTypeMatching (
         { "Neural Amp Modeler", "NeuralAmpModeler", "NeuralAmp" }, ampDesc);
-    const bool haveVolum = ! haveNam && host.findTypeMatching ({ "VoLum" }, ampDesc);
-    const bool haveAmp = haveNam || haveVolum;
-    const bool haveOd = host.findTypeMatching ({ "ChowCentaur", "KlonCentaur" }, odDesc);
+    if (! haveAmp)
+        haveAmp = host.findTypeMatching ({ "VoLum" }, ampDesc);
+    if (! haveAmp)
+        haveAmp = host.findTypeMatching ({ "Emissary", "Anvil" }, ampDesc);
 
-    const int insertSlots[] = { PluginRack::PreAmp, PluginRack::Post, PluginRack::Slot4 };
-    int next = 0;
+    const bool haveOd = host.findTypeMatching ({ "ChowCentaur", "KlonCentaur", "Centaur" }, odDesc);
+    const bool haveCab = host.findTypeMatching ({ "NadIR", "nadir" }, cabDesc);
+
     int loaded = 0;
-
-    auto place = [&] (const juce::PluginDescription& d)
+    auto place = [&] (int slot, const juce::PluginDescription& d) -> bool
     {
-        while (next < 3)
+        if (guitarRack.getSlotPluginName (slot).isNotEmpty())
+            return false;
+        const auto err = guitarRack.loadPlugin (slot, d);
+        if (err.isEmpty())
         {
-            const int slot = insertSlots[next++];
-            if (guitarRack.getSlotPluginName (slot).isNotEmpty())
-                continue;
-            const auto err = guitarRack.loadPlugin (slot, d);
-            if (err.isEmpty())
-                ++loaded;
-            return;
+            ++loaded;
+            return true;
         }
+        return false;
     };
 
+    // Amp → AmpReplace so built-in AmpCab is skipped (isVstAmpActive).
+    // Never stack a second amp in Pre in front of SAWVI.
     if (haveAmp)
-        place (ampDesc);
+        place (PluginRack::AmpReplace, ampDesc);
+    // Drive / pre into PreAmp
     if (haveOd)
-        place (odDesc);
+        place (PluginRack::PreAmp, odDesc);
+    // Cab IR into Post
+    if (haveCab)
+        place (PluginRack::Post, cabDesc);
 
     if (loaded > 0)
         guitarRack.saveSlotState();
     return loaded;
 }
-

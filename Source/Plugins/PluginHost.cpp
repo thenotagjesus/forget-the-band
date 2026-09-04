@@ -88,14 +88,16 @@ void PluginHost::clearStarterSeeded()
 
 void PluginHost::maybeForceCleanRescan()
 {
-    // One-shot: clear dead-man blacklist + starter flag so list rebuilds with
-    // bundle paths after the VST load fix.
-    auto marker = settingsFile().getSiblingFile ("vst-load-fix-20260903.flag");
+    // One-shot: clear dead-man + starter + slot state so amp VSTs re-seed into AmpReplace
+    // (old seed stacked NAM/VoLum in Pre while SAWVI still ran).
+    auto marker = settingsFile().getSiblingFile ("vst-amp-slot-fix-20260904.flag");
     if (marker.existsAsFile())
         return;
     deadMansPedalFile().deleteFile();
     clearStarterSeeded();
-    marker.replaceWithText ("1\n");
+    settingsFile().getSiblingFile ("plugin-slots.xml").deleteFile();
+    marker.replaceWithText ("1
+");
 }
 
 bool PluginHost::shouldAutoScan() const

@@ -55,10 +55,17 @@ public:
     void processChain (float* left, float* right, int numSamples,
                        const juce::MidiBuffer& midi) noexcept;
 
+    /** True when plugin name looks like an amp sim (prefer AmpReplace). */
+    static bool isAmpClassName (const juce::String& name) noexcept;
+    /** True when plugin name looks like a cab / IR loader (prefer Post). */
+    static bool isCabClassName (const juce::String& name) noexcept;
+    /** True when plugin name looks like an overdrive / preamp pedal (prefer PreAmp). */
+    static bool isDriveClassName (const juce::String& name) noexcept;
+
     /** Worker thread instantiate. Never call createPluginInstance on the audio thread. */
     juce::String loadPlugin (int slot, const juce::PluginDescription& desc);
     juce::String loadPlugin (int slot, const juce::PluginDescription& desc,
-                             const juce::MemoryBlock& state);
+                             const juce::MemoryBlock& state, bool offerEditor = false);
     void unloadPlugin (int slot);
 
     void saveToXml (juce::XmlElement& xml) const;
@@ -118,6 +125,8 @@ private:
 
     void closeEditorLocked (Slot& slot);
     void refreshVstAmpFlag() noexcept;
+    static void softClipMakeup (float* left, float* right, int n) noexcept;
+    bool trySetBuses (juce::AudioPluginInstance& inst) const;
     void publishInstance (Slot& slot, std::unique_ptr<juce::AudioPluginInstance> inst,
                           const juce::PluginDescription& desc, bool bypassed);
     void retireInstance (Slot& slot);

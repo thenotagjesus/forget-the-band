@@ -1,4 +1,5 @@
 #include "Plugins/PluginRack.h"
+#include <cmath>
 
 #if JUCE_WINDOWS
  #include <objbase.h>
@@ -9,6 +10,95 @@ const char* PluginRack::slotName (int id)
     static const char* names[] = { "Pre", "Amp", "Post", "4" };
     if (id < 0 || id >= NumSlots) return "Slot";
     return names[id];
+}
+
+
+bool PluginRack::isAmpClassName (const juce::String& name) noexcept
+{
+    if (name.isEmpty())
+        return false;
+    // Avoid bare "NAM" — it matches "name" inside paths/labels.
+    if (name.equalsIgnoreCase ("NAM")
+        || name.startsWithIgnoreCase ("NAM ")
+        || name.containsIgnoreCase (" NAM")
+        || name.containsIgnoreCase ("(NAM)")
+        || name.containsIgnoreCase ("Neural Amp")
+        || name.containsIgnoreCase ("NeuralAmp"))
+        return true;
+    static const char* needles[] = {
+        "VoLum", "Emissary", "Anvil", "Proteus", "NeuralPi", "SmartAmp",
+        "Epoch", "Chameleon", "ProFET", "NRR", "GuitarML"
+    };
+    for (auto* n : needles)
+        if (name.containsIgnoreCase (n))
+            return true;
+    return false;
+}
+
+bool PluginRack::isCabClassName (const juce::String& name) noexcept
+{
+    if (name.isEmpty())
+        return false;
+    return name.containsIgnoreCase ("NadIR")
+        || name.containsIgnoreCase ("CabIR")
+        || name.containsIgnoreCase ("Impulse")
+        || (name.containsIgnoreCase ("IR") && name.containsIgnoreCase ("Cab"));
+}
+
+bool PluginRack::isDriveClassName (const juce::String& name) noexcept
+{
+    if (name.isEmpty())
+        return false;
+    return name.containsIgnoreCase ("ChowCentaur")
+        || name.containsIgnoreCase ("KlonCentaur")
+        || name.containsIgnoreCase ("Centaur")
+        || name.containsIgnoreCase ("Overdrive")
+        || name.containsIgnoreCase ("TubeScreamer")
+        || name.containsIgnoreCase ("TS9");
+}
+
+void PluginRack::softClipMakeup (float* left, float* right, int n) noexcept
+{
+    if (left == nullptr || n <= 0)
+        return;
+    // Soft clip + sit near Insane path loudness (~-9 dBFS sit).
+    constexpr float makeup = 0.92f;
+    constexpr float sit = 0.38f;
+    for (int i = 0; i < n; ++i)
+    {
+        float x = left[i] * makeup;
+        x = x / (1.0f + std::abs (x) * 0.85f);
+        left[i] = x * sit;
+        if (right != nullptr)
+        {
+            float y = right[i] * makeup;
+            y = y / (1.0f + std::abs (y) * 0.85f);
+            right[i] = y * sit;
+        }
+    }
+}
+
+bool PluginRack::trySetBuses (juce::AudioPluginInstance& inst) const
+{
+    auto tryLayout = [&] (juce::AudioChannelSet inSet, juce::AudioChannelSet outSet) -> bool
+    {
+        juce::AudioProcessor::BusesLayout layout;
+        layout.inputBuses.add (inSet);
+        layout.outputBuses.add (outSet);
+        if (! inst.checkBusesLayoutSupported (layout))
+            return false;
+        return inst.setBusesLayout (layout);
+    };
+
+    // Guitar is mono; many amp plugs hate forced stereo-only.
+    if (tryLayout (juce::AudioChannelSet::mono(), juce::AudioChannelSet::mono()))
+        return true;
+    if (tryLayout (juce::AudioChannelSet::mono(), juce::AudioChannelSet::stereo()))
+        return true;
+    if (tryLayout (juce::AudioChannelSet::stereo(), juce::AudioChannelSet::stereo()))
+        return true;
+    inst.enableAllBuses();
+    return false;
 }
 
 PluginRack::PluginRack (PluginHost& h)
@@ -181,7 +271,7 @@ void PluginRack::publishInstance (Slot& slot, std::unique_ptr<juce::AudioPluginI
 {
     if (inst == nullptr)
         return;
-    const int ch = juce::jmax (2, inst->getTotalNumInputChannels(), inst->getTotalNumOutputChannels());
+    const int ch = juce::jmax (1, inst->getTotalNumInputChannels(), inst->getTotalNumOutputChannels(), 2);
     slot.buffer.setSize (ch, maxBlock, false, true, true);
     slot.seq.fetch_add (1, std::memory_order_acq_rel);
     slot.live.store (nullptr, std::memory_order_release);
@@ -262,48 +352,87 @@ void PluginRack::process (SlotId id,
         return;
     }
 
-    const int n = juce::jmin (numSamples, slot.buffer.getNumSamples());
-    if (n <= 0)
+    const int bufN = slot.buffer.getNumSamples();
+    if (bufN <= 0)
+    {
+        slot.inAudio.fetch_sub (1, std::memory_order_release);
         return;
-
-    const int nCh = juce::jmax (1, slot.buffer.getNumChannels());
-    if (right != nullptr && nCh > 1)
-    {
-        slot.buffer.copyFrom (0, 0, left, n);
-        slot.buffer.copyFrom (1, 0, right, n);
-        for (int ch = 2; ch < nCh; ++ch)
-            slot.buffer.clear (ch, 0, n);
-    }
-    else
-    {
-        for (int ch = 0; ch < nCh; ++ch)
-            slot.buffer.copyFrom (ch, 0, left, n);
     }
 
-    slot.midi.clear();
-    if (inst->acceptsMidi())
-        slot.midi.addEvents (guitarMidi, 0, n, 0);
+    const int nChInWant = juce::jmax (1, inst->getTotalNumInputChannels());
+    const int nChOutHave = juce::jmax (1, inst->getTotalNumOutputChannels());
+    const int nCh = juce::jmax (1, slot.buffer.getNumChannels(), nChInWant, nChOutHave);
 
-    inst->processBlock (slot.buffer, slot.midi);
+    auto processChunk = [&] (int offset, int n)
+    {
+        if (n <= 0)
+            return;
 
-    if (right != nullptr && nCh > 1)
+        // Match host channel counts: mono guitar duplicated only when plug wants stereo in.
+        if (nChInWant <= 1)
+        {
+            slot.buffer.copyFrom (0, 0, left + offset, n);
+            for (int ch = 1; ch < nCh; ++ch)
+                slot.buffer.clear (ch, 0, n);
+        }
+        else if (right != nullptr)
+        {
+            slot.buffer.copyFrom (0, 0, left + offset, n);
+            slot.buffer.copyFrom (1, 0, right + offset, n);
+            for (int ch = 2; ch < nCh; ++ch)
+                slot.buffer.clear (ch, 0, n);
+        }
+        else
+        {
+            for (int ch = 0; ch < juce::jmin (nCh, nChInWant); ++ch)
+                slot.buffer.copyFrom (ch, 0, left + offset, n);
+            for (int ch = nChInWant; ch < nCh; ++ch)
+                slot.buffer.clear (ch, 0, n);
+        }
+
+        // Clear any unused output tail region in the buffer beyond n.
+        if (n < bufN)
+            for (int ch = 0; ch < nCh; ++ch)
+                slot.buffer.clear (ch, n, bufN - n);
+
+        slot.midi.clear();
+        if (inst->acceptsMidi())
+            slot.midi.addEvents (guitarMidi, offset, n, -offset);
+
+        inst->processBlock (slot.buffer, slot.midi);
+
+        const int nOut = juce::jmax (1, inst->getTotalNumOutputChannels());
+        if (right != nullptr && nOut > 1)
+        {
+            juce::FloatVectorOperations::copy (left + offset, slot.buffer.getReadPointer (0), n);
+            juce::FloatVectorOperations::copy (right + offset, slot.buffer.getReadPointer (1), n);
+        }
+        else if (nOut > 1)
+        {
+            const float* l = slot.buffer.getReadPointer (0);
+            const float* r = slot.buffer.getReadPointer (1);
+            for (int i = 0; i < n; ++i)
+                left[offset + i] = 0.5f * (l[i] + r[i]);
+        }
+        else
+        {
+            juce::FloatVectorOperations::copy (left + offset, slot.buffer.getReadPointer (0), n);
+            if (right != nullptr)
+                juce::FloatVectorOperations::copy (right + offset, slot.buffer.getReadPointer (0), n);
+        }
+    };
+
+    // Process in chunks if the block is larger than the prepared buffer.
+    int done = 0;
+    while (done < numSamples)
     {
-        juce::FloatVectorOperations::copy (left, slot.buffer.getReadPointer (0), n);
-        juce::FloatVectorOperations::copy (right, slot.buffer.getReadPointer (1), n);
+        const int chunk = juce::jmin (numSamples - done, bufN);
+        processChunk (done, chunk);
+        done += chunk;
     }
-    else if (nCh > 1)
-    {
-        const float* l = slot.buffer.getReadPointer (0);
-        const float* r = slot.buffer.getReadPointer (1);
-        for (int i = 0; i < n; ++i)
-            left[i] = 0.5f * (l[i] + r[i]);
-    }
-    else
-    {
-        juce::FloatVectorOperations::copy (left, slot.buffer.getReadPointer (0), n);
-        if (right != nullptr)
-            juce::FloatVectorOperations::copy (right, slot.buffer.getReadPointer (0), n);
-    }
+
+    if (id == AmpReplace)
+        softClipMakeup (left, right, numSamples);
 
     slot.inAudio.fetch_sub (1, std::memory_order_release);
 }
@@ -331,11 +460,11 @@ void PluginRack::processChain (float* left, float* right, int numSamples,
 
 juce::String PluginRack::loadPlugin (int slotIndex, const juce::PluginDescription& desc)
 {
-    return loadPlugin (slotIndex, desc, juce::MemoryBlock{});
+    return loadPlugin (slotIndex, desc, juce::MemoryBlock{}, false);
 }
 
 juce::String PluginRack::loadPlugin (int slotIndex, const juce::PluginDescription& desc,
-                                     const juce::MemoryBlock& state)
+                                     const juce::MemoryBlock& state, bool offerEditor)
 {
     if (slotIndex < 0 || slotIndex >= NumSlots)
         return "Invalid slot";
@@ -345,7 +474,7 @@ juce::String PluginRack::loadPlugin (int slotIndex, const juce::PluginDescriptio
     const bool persist = persistSlots;
     juce::PluginDescription fixed = desc;
     fixed.fileOrIdentifier = PluginHost::resolveVst3BundlePath (desc);
-    juce::Thread::launch ([this, slotIndex, fixed, state, sr, block, persist]
+    juce::Thread::launch ([this, slotIndex, fixed, state, sr, block, persist, offerEditor]
     {
 #if JUCE_WINDOWS
         const HRESULT coHr = CoInitializeEx (nullptr, COINIT_MULTITHREADED);
@@ -370,11 +499,7 @@ juce::String PluginRack::loadPlugin (int slotIndex, const juce::PluginDescriptio
             return;
         }
 
-        juce::AudioProcessor::BusesLayout layout;
-        layout.inputBuses.add (juce::AudioChannelSet::stereo());
-        layout.outputBuses.add (juce::AudioChannelSet::stereo());
-        if (! inst->setBusesLayout (layout))
-            inst->enableAllBuses();
+        trySetBuses (*inst);
         inst->setRateAndBufferSizeDetails (sr, block);
         inst->prepareToPlay (sr, block);
         if (state.getSize() > 0)
@@ -389,6 +514,15 @@ juce::String PluginRack::loadPlugin (int slotIndex, const juce::PluginDescriptio
         refreshVstAmpFlag();
         if (persist)
             saveSlotState();
+
+        if (offerEditor)
+        {
+            const int slotCopy = slotIndex;
+            juce::MessageManager::callAsync ([this, slotCopy]
+            {
+                showEditor (slotCopy);
+            });
+        }
 #if JUCE_WINDOWS
         if (SUCCEEDED (coHr))
             CoUninitialize();
@@ -437,9 +571,15 @@ void PluginRack::showEditor (int slotIndex)
     if (slotIndex < 0 || slotIndex >= NumSlots)
         return;
 
+    if (! juce::MessageManager::getInstance()->isThisTheMessageThread())
+    {
+        juce::MessageManager::callAsync ([this, slotIndex] { showEditor (slotIndex); });
+        return;
+    }
+
     auto& slot = slots[(size_t) slotIndex];
     const juce::ScopedLock sl (slot.lock);
-    if (slot.instance == nullptr)
+    if (slot.instance == nullptr || slot.ready.load (std::memory_order_acquire) == 0)
         return;
 
     if (slot.editor != nullptr)
@@ -456,6 +596,9 @@ void PluginRack::showEditor (int slotIndex)
     {
         const auto title = juce::String (slotName (slotIndex)) + " — " + slot.desc.name;
         slot.editor = std::make_unique<EditorWindow> (title, *slot.instance, ed);
+        // Keep DocumentWindow alive for the slot lifetime; close only hides.
+        slot.editor->setVisible (true);
+        slot.editor->toFront (true);
     }
 }
 
