@@ -23,12 +23,13 @@ namespace
 
     juce::String pluginKey (const juce::PluginDescription& t)
     {
+        // Prefer uniqueId so Documents vs Program Files copies collapse.
+        // Do NOT use createIdentifierString() — it embeds the file path.
         if (t.uniqueId != 0)
             return "uid:" + juce::String (t.uniqueId);
-        const auto id = t.createIdentifierString();
-        if (id.isNotEmpty())
-            return id;
-        return t.name + "|" + t.pluginFormatName + "|" + t.manufacturerName;
+        if (t.deprecatedUid != 0)
+            return "duid:" + juce::String (t.deprecatedUid);
+        return t.pluginFormatName + "|" + t.manufacturerName + "|" + t.name;
     }
 
     int pathPreferenceScore (const juce::String& path)
