@@ -1675,14 +1675,38 @@ void SessionUI::selectDawTrack (int t)
 
 void SessionUI::fillPluginCombo (juce::ComboBox& box, PluginRack& rack, int slot)
 {
+    auto& host = proc.getPluginHost();
     const auto current = rack.getSlotDescription (slot).createIdentifierString();
     box.clear (juce::dontSendNotification);
     box.addItem ("(empty)", 1);
     int sel = 1;
     int id = 2;
-    for (const auto& d : proc.getPluginHost().knownList.getTypes())
+    const auto types = host.knownList.getTypes();
+    juce::StringArray nameCounts;
+    for (const auto& d : types)
+        nameCounts.add (d.name);
+    for (const auto& d : types)
     {
-        box.addItem (d.name + "  [" + d.pluginFormatName + "]", id);
+        juce::String label = d.name;
+        const int dupes = nameCounts.indexOf (d.name) != nameCounts.lastIndexOf (d.name) ? 1 : 0;
+        // Count occurrences
+        int count = 0;
+        for (const auto& n : nameCounts)
+            if (n == d.name) ++count;
+        if (count > 1)
+        {
+            const auto hint = PluginHost::pathFolderHint (d.fileOrIdentifier);
+            if (hint.isNotEmpty())
+                label += "  [" + hint + "]";
+            else
+                label += "  [" + d.pluginFormatName + "]";
+        }
+        else
+        {
+            label += "  [" + d.pluginFormatName + "]";
+        }
+        juce::ignoreUnused (dupes);
+        box.addItem (label, id);
         if (d.createIdentifierString() == current)
             sel = id;
         ++id;
@@ -1725,6 +1749,7 @@ void SessionUI::bindPluginSlot (juce::ComboBox& box, juce::TextButton& byp, juce
 
 void SessionUI::refreshPluginCombos()
 {
+    proc.getPluginHost().sanitizeKnownList();
     auto& gRack = proc.getGuitarRack();
     auto& tRack = selectedTrackRack();
     for (int i = 0; i < 4; ++i)

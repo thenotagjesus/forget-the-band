@@ -1,5 +1,9 @@
 #include "Plugins/PluginRack.h"
 
+#if JUCE_WINDOWS
+ #include <objbase.h>
+#endif
+
 const char* PluginRack::slotName (int id)
 {
     static const char* names[] = { "Pre", "Amp", "Post", "4" };
@@ -339,18 +343,30 @@ juce::String PluginRack::loadPlugin (int slotIndex, const juce::PluginDescriptio
     const double sr = sampleRate > 1.0 ? sampleRate : 44100.0;
     const int block = juce::jmax (maxBlock, 512);
     const bool persist = persistSlots;
-    juce::Thread::launch ([this, slotIndex, desc, state, sr, block, persist]
+    juce::PluginDescription fixed = desc;
+    fixed.fileOrIdentifier = PluginHost::resolveVst3BundlePath (desc);
+    juce::Thread::launch ([this, slotIndex, fixed, state, sr, block, persist]
     {
+#if JUCE_WINDOWS
+        const HRESULT coHr = CoInitializeEx (nullptr, COINIT_MULTITHREADED);
+#endif
         juce::String error;
-        auto inst = host.formatManager.createPluginInstance (desc, sr, block, error);
+        auto inst = host.formatManager.createPluginInstance (fixed, sr, block, error);
         if (inst == nullptr)
         {
-            juce::MessageManager::callAsync ([error]
+            const auto name = fixed.name.isNotEmpty() ? fixed.name : juce::String ("(unknown)");
+            const auto path = fixed.fileOrIdentifier;
+            const auto detail = (error.isNotEmpty() ? error : juce::String ("Failed to instantiate plugin"))
+                + "\n\n" + name + "\n" + path;
+            juce::MessageManager::callAsync ([detail]
             {
                 juce::NativeMessageBox::showMessageBoxAsync (
-                    juce::MessageBoxIconType::WarningIcon, "VST3",
-                    error.isNotEmpty() ? error : juce::String ("Failed to instantiate plugin"));
+                    juce::MessageBoxIconType::WarningIcon, "VST3", detail);
             });
+#if JUCE_WINDOWS
+            if (SUCCEEDED (coHr))
+                CoUninitialize();
+#endif
             return;
         }
 
@@ -368,11 +384,15 @@ juce::String PluginRack::loadPlugin (int slotIndex, const juce::PluginDescriptio
         auto& slot = slots[(size_t) slotIndex];
         {
             const juce::ScopedLock sl (slot.lock);
-            publishInstance (slot, std::move (inst), desc, false);
+            publishInstance (slot, std::move (inst), fixed, false);
         }
         refreshVstAmpFlag();
         if (persist)
             saveSlotState();
+#if JUCE_WINDOWS
+        if (SUCCEEDED (coHr))
+            CoUninitialize();
+#endif
     });
     return {};
 }

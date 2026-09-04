@@ -89,6 +89,8 @@ public:
     void setFollowedDegree (int deg) noexcept { followDeg.store (deg, std::memory_order_relaxed); }
     void setThinMask (int mask) noexcept { thinMask.store (mask, std::memory_order_relaxed); }
     void applyPhaseNudge (double deltaSamples) noexcept;
+    /** Audio thread: strong guitar onset near a beat may reinforce kick. */
+    void noteGuitarOnset (float strength) noexcept;
     double getStepAccum() const noexcept { return stepAccum; }
     double getSamplesPer16th() const noexcept { return samplesPer16th; }
 
@@ -236,6 +238,9 @@ private:
     bool hatOpen = false;
     bool fillThisBar = false;
     bool pendingCrash = false;
+    int  fillVariant = 0; // 0 tom run, 1 snare build, 2 crash accent
+    std::atomic<int> pendingOnsetKick { 0 }; // 0 idle, 1 this beat, 2 next downbeat
+    float pendingOnsetStr = 0.0f;
 
     float bassPhase = 0, bassEnv = 0, bassHz = 82.41f;
     float subPhase = 0;

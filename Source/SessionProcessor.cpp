@@ -564,6 +564,14 @@ void SessionProcessor::processDuplex (const float* const* inChannels, int numIns
         float chroma[12] = {};
         analyzer.copyChroma (chroma);
         const bool onset = analyzer.consumeOnset();
+        if (onset)
+        {
+            // Prefer live player energy / intensity so onset kicks actually arm.
+            const float str = juce::jmax (analyzer.getPlayerEnergy(),
+                                          analyzer.getIntensity(),
+                                          bandEnergy.load (std::memory_order_relaxed));
+            band.noteGuitarOnset (str);
+        }
         arrangement.tick (chroma, onset,
                           analyzer.getKeyPc(),
                           (int) band.getStyle(),
